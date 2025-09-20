@@ -1,10 +1,80 @@
-# 🦜🎤 Voice ReAct Agent
+# AI Voice Assistant with Phone Call Integration
+
+> Production-ready template for **real-time voice AI** over **web** and **phone**, built on top of LangChain’s `react-voice-agent`. This top section introduces the project for proposals while development continues.
+
+## Project Highlights
+
+* **New repo bootstrap**: pulled from `langchain-ai/react-voice-agent`, rebranded, cleaned, history preserved.
+* **Voice pipeline optimization**: WebRTC + OpenAI Realtime API, pluggable **ASR/TTS** (OpenAI/Deepgram/ElevenLabs/Azure), latency instrumentation (P50/P95).
+* **Telephony integration**: **Twilio Programmable Voice** + SIP.js bridge, DTMF passthrough.
+* **WebRTC mode**: one-to-one **Browser ↔ AI Voice Assistant** demo (low-latency).
+* **Demo available**: Browser Voice interaction + Phone Call (Twilio). *(See "Demo" section below.)*
+
+## Tech stack
+
+* **Languages**: TypeScript (React/Node.js), Python (optional server tools)
+* **Voice**: WebRTC (UDP-first), OpenAI Realtime API; ASR/TTS adapters: OpenAI / Deepgram / ElevenLabs / Azure Speech
+* **Telephony**: Twilio Programmable Voice, SIP.js, TwiML; WebSocket media bridge
+* **Dev**: Next.js/Vite, LangChain.js, Node.js perf hooks, WebRTC Stats API
+
+# Architecture
+
+**Client (Browser)**  
+- Microphone & Speaker  
+- WebRTC connection (UDP-first)  
+
+**Phone (PSTN / Mobile)**  
+- Standard phone call  
+- DTMF inputs  
+
+**Edge / Server (Node.js)**  
+- Web Server / WebSocket Bridge  
+- Telephony Bridge (Twilio SIP / TwiML)  
+
+**AI Backend**  
+- OpenAI Realtime API  
+  - Streaming ASR (speech-to-text)  
+  - LLM reasoning  
+  - TTS (text-to-speech)  
+- LangChain Tools (optional)  
+  - CRM, Accounting, News, Sentiment  
+
+**Data Flow**  
+1. **WebRTC mode (Browser ↔ AI)**  
+   - Browser → WebSocket Bridge → OpenAI Realtime → Tools  
+   - Audio response back to browser  
+
+2. **Telephony mode (Phone ↔ AI)**  
+   - Phone → Twilio SIP/TwiML → Telephony Bridge → WebSocket Bridge → OpenAI Realtime → Tools  
+   - Audio response back to phone  
+
+## Demo
+
+* **Browser Voice**: *link-to-video-or-gif*
+* **Phone Call (Twilio)**: *link-to-video-or-gif*
+
+---
+
+## 🦜🎤 Voice ReAct Agent
 
 This is an implementation of a [ReAct](https://arxiv.org/abs/2210.03629)-style agent that uses OpenAI's new [Realtime API](https://platform.openai.com/docs/guides/realtime).
 
 Specifically, we enable this model to call tools by providing it a list of [LangChain tools](https://python.langchain.com/docs/how_to/custom_tools/#creating-tools-from-functions). It is easy to write custom tools, and you can easily pass these to the model.
 
 ![](static/react.png)
+
+## 📜 License & Credits
+
+This section of the project is originally from
+[langchain-ai/react-voice-agent](https://github.com/langchain-ai/react-voice-agent/tree/main)
+
+It has been **modified and extended** into the current repository
+**AI Voice Assistant with Phone Call Integration**,
+with additional features (telephony, dual-mode WebRTC/LiveKit, memory, observability, etc.).
+
+Please keep the original LICENSE from LangChain intact.
+
+All modifications in this repository are provided under the same license as the upstream project, unless otherwise noted.
 
 ## Installation
 
