@@ -33,7 +33,7 @@ class OpenAIWebSocketConnection {
   constructor(params: { url?: string; apiKey?: string; model?: string }) {
     this.url = params.url ?? DEFAULT_URL;
     this.model = params.model ?? DEFAULT_MODEL;
-    this.apiKey = params.apiKey ?? process.env.OPENAI_API_KEY;
+    this.apiKey = params.apiKey ?? process.env.t;
   }
 
   async connect() {
@@ -226,7 +226,7 @@ export class OpenAIVoiceReactAgent {
       type: "function",
       name: tool.name,
       description: tool.description,
-      parameters: zodToJsonSchema(tool.schema),
+      parameters: tool.schema,
     }));
 
     this.connection.sendEvent({

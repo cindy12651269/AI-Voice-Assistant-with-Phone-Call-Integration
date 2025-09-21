@@ -15,7 +15,7 @@
 * **Languages**: TypeScript (React/Node.js), Python (optional server tools)
 * **Voice**: WebRTC (UDP-first), OpenAI Realtime API; ASR/TTS adapters: OpenAI / Deepgram / ElevenLabs / Azure Speech
 * **Telephony**: Twilio Programmable Voice, SIP.js, TwiML; WebSocket media bridge
-* **Dev**: Next.js/Vite, LangChain.js, Node.js perf hooks, WebRTC Stats API
+* **Dev**: Next.js, LangChain.js, Node.js perf hooks, WebRTC Stats API
 
 # Architecture
 
@@ -113,7 +113,7 @@ To run the project, execute the following commands:
 
 ```bash
 cd server
-uv run src/server/app.py
+uv run python -m src.server.app
 ```
 
 ### TypeScript
@@ -151,3 +151,140 @@ You can add your own custom instructions by adding them to the `server/src/serve
 
 - [ ] Enable interrupting the AI
 - [ ] Enable changing of instructions/tools based on state
+
+---
+
+## ✅ Speech Pipeline Optimization (WebRTC + ASR/TTS)
+
+1) **Start the Python server**
+```bash
+cd server
+uv run python -m src.server.app
+```
+- Expect to see logs like:
+```
+Uvicorn running on http://0.0.0.0:8000 
+```
+
+2) **Start the JS demo**
+```bash
+cd js_server
+yarn dev
+```
+- Expect to see logs like:
+```
+Server is running on http://localhost:3000
+```
+- Open browser: http://localhost:3000  
+- Allow microphone access: Click **Start Audio** to begin voice testing.
+
+3) **Verify ASR/TTS provider switching**
+Set environment variables **before starting the server**:
+
+**macOS / Linux (zsh/bash):**
+
+```bash
+export ASR_PROVIDER=deepgram
+export TTS_PROVIDER=elevenlabs
+cd server
+uv run python -m src.server.app
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$env:ASR_PROVIDER="deepgram"
+$env:TTS_PROVIDER="elevenlabs"
+cd server
+uv run python -m src.server.app
+```
+
+Then speak into the mic → check the server logs for provider-specific output:
+
+```
+Transcribed: "hello world"        # Deepgram stub
+Synthesized audio (ElevenLabs)    # ElevenLabs stub
+```
+
+4) **Check latency logs**
+### Backend (Python server)
+
+The server console prints per-stage timings:
+
+```
+ASR latency: 0.003s
+LLM latency: 0.052s
+TTS latency: 0.020s
+```
+
+### Frontend (Browser / DevTools)
+
+Open **Chrome DevTools (F12)** → Console/Network → check WebRTC stats:
+
+* `packetsSent`
+* `jitter`
+* `rtt`
+
+---
+
+## 📞 Telephony Integration (Twilio / SIP)
+
+1) **Expose the server with ngrok** (for Twilio webhooks)
+```bash
+ngrok http 8000
+```
+- Copy the public URL (e.g., `https://abc123.ngrok.io`).
+
+2) **Configure Twilio Voice webhook**
+- Twilio Console → Phone Numbers → Your Number → Voice → A CALL COMES IN → Webhook  
+- Set to:
+```
+https://<ngrok-url>/twilio/voice
+```
+
+3) **Make a call to your Twilio number**
+- Speak normally
+- Expected server logs:
+```
+Incoming call from +1XXXX
+Received audio stream
+Transcribed: ...
+AI Response: ...
+Synthesized audio (bytes: 10240)
+```
+- You should hear the AI’s audio reply (stub or real TTS).
+
+Troubleshooting:
+- If no audio back, verify TwiML response, media passthrough, and server route `POST /twilio/voice`.
+- Ensure your env vars for ASR/TTS providers are set (or default to OpenAI).
+
+---
+
+## 🌐 WebRTC Mode (Browser Voice Agent)
+
+1) **Start Python server** (same as M1).
+
+2) **Start JS demo** (same as M1), then open http://localhost:3000.
+
+3) **Speak into the mic** and observe the end-to-end loop:
+- Expected server logs:
+```
+Received audio stream
+Transcribed: "what's the weather"
+AI Response: "The weather is sunny."
+Synthesized audio (bytes: 9021)
+```
+- Browser should play back the AI voice response.
+
+4) **Validate metrics**
+- Server logs show latency breakdown (ASR → LLM → TTS).
+- Browser console shows WebRTC stats (jitter, packets, rtt). Capture a short screen recording or screenshot for your README.
+
+---
+
+### ✅ Pass Criteria Summary
+
+- **Speech Pipeline Optimization (WebRTC + ASR/TTS)**: Browser demo works; ASR/TTS provider switching via env; server & browser print latency/stats.
+- **Telephony Integration (Twilio / SIP)**: Inbound phone call reaches your server; you hear AI audio back; server logs show telephony flow.
+- **WebRTC Mode (Browser Voice Agent)**: Full WebRTC 1:1 loop from browser mic to AI reply (audio playback) with visible latency metrics.
+

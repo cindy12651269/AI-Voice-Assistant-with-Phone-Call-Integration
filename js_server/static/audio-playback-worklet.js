@@ -1,34 +1,35 @@
 // source: https://github.com/Azure-Samples/aisearch-openai-rag-audio/blob/7f685a8969e3b63e8c3ef345326c21f5ab82b1c3/app/frontend/public/audio-playback-worklet.js
-class AudioPlaybackWorklet extends AudioWorkletProcessor {
+// PCM Audio Processor with timestamp header
+const MIN_INT16 = -0x8000;
+const MAX_INT16 = 0x7fff;
+
+class PCMAudioProcessor extends AudioWorkletProcessor {
     constructor() {
         super();
-        this.port.onmessage = this.handleMessage.bind(this);
-        this.buffer = [];
-    }
-
-    handleMessage(event) {
-        if (event.data === null) {
-            this.buffer = [];
-            return;
-        }
-        this.buffer.push(...event.data);
     }
 
     process(inputs, outputs, parameters) {
-        const output = outputs[0];
-        const channel = output[0];
+        const input = inputs[0];
+        if (input.length > 0) {
+            const float32Buffer = input[0];
+            const int16Buffer = this.float32ToInt16(float32Buffer);
 
-        if (this.buffer.length > channel.length) {
-            const toProcess = this.buffer.slice(0, channel.length);
-            this.buffer = this.buffer.slice(channel.length);
-            channel.set(toProcess.map(v => v / 32768));
-        } else {
-            channel.set(this.buffer.map(v => v / 32768));
-            this.buffer = [];
+            // Add timestamp header 
+            const ts = currentTime * 1000; // AudioWorklet global time in ms
+            this.port.postMessage({ ts, data: int16Buffer });
         }
-
         return true;
+    }
+
+    float32ToInt16(float32Array) {
+        const int16Array = new Int16Array(float32Array.length);
+        for (let i = 0; i < float32Array.length; i++) {
+            let val = Math.floor(float32Array[i] * MAX_INT16);
+            val = Math.max(MIN_INT16, Math.min(MAX_INT16, val));
+            int16Array[i] = val;
+        }
+        return int16Array;
     }
 }
 
-registerProcessor("audio-playback-worklet", AudioPlaybackWorklet);
+registerProcessor("audio-processor-worklet", PCMAudioProcessor);

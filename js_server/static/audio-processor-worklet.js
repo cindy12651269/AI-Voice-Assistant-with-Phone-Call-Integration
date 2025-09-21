@@ -1,31 +1,49 @@
 // source: https://github.com/Azure-Samples/aisearch-openai-rag-audio/blob/7f685a8969e3b63e8c3ef345326c21f5ab82b1c3/app/frontend/public/audio-processor-worklet.js
-const MIN_INT16 = -0x8000;
-const MAX_INT16 = 0x7fff;
-
-class PCMAudioProcessor extends AudioWorkletProcessor {
+// Audio Playback Worklet with timestamp logging
+class AudioPlaybackWorklet extends AudioWorkletProcessor {
     constructor() {
         super();
+        this.port.onmessage = this.handleMessage.bind(this);
+        this.buffer = [];
+        this.lastTimestamp = null;
+    }
+
+    handleMessage(event) {
+        if (event.data === null) {
+            this.buffer = [];
+            return;
+        }
+
+        // Handle timestamp header 
+        if (event.data.ts && event.data.data) {
+            const now = currentTime * 1000; // in ms
+            const latency = now - event.data.ts;
+            console.log(`[AudioLatency] ${latency.toFixed(2)} ms`);
+
+            this.lastTimestamp = event.data.ts;
+            this.buffer.push(...event.data.data);
+        } else {
+            // backward compatibility (raw Int16Array)
+            this.buffer.push(...event.data);
+        }
     }
 
     process(inputs, outputs, parameters) {
-        const input = inputs[0];
-        if (input.length > 0) {
-            const float32Buffer = input[0];
-            const int16Buffer = this.float32ToInt16(float32Buffer);
-            this.port.postMessage(int16Buffer);
-        }
-        return true;
-    }
+        const output = outputs[0];
+        const channel = output[0];
 
-    float32ToInt16(float32Array) {
-        const int16Array = new Int16Array(float32Array.length);
-        for (let i = 0; i < float32Array.length; i++) {
-            let val = Math.floor(float32Array[i] * MAX_INT16);
-            val = Math.max(MIN_INT16, Math.min(MAX_INT16, val));
-            int16Array[i] = val;
+        if (this.buffer.length > channel.length) {
+            const toProcess = this.buffer.slice(0, channel.length);
+            this.buffer = this.buffer.slice(channel.length);
+            channel.set(toProcess.map(v => v / 32768));
+        } else {
+            channel.set(this.buffer.map(v => v / 32768));
+            this.buffer = [];
         }
-        return int16Array;
+
+        return true;
     }
 }
 
-registerProcessor("audio-processor-worklet", PCMAudioProcessor);
+registerProcessor("audio-playback-worklet", AudioPlaybackWorklet);
+
