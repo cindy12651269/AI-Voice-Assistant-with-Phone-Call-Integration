@@ -9,13 +9,13 @@ from starlette.responses import HTMLResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
-from langchain_openai_voice import OpenAIVoiceReactAgent
+from src.langchain_openai_voice import OpenAIVoiceReactAgent
 from src.server.utils import websocket_stream
 from src.server.prompt import INSTRUCTIONS
 from src.server.tools import TOOLS
 
 # Import provider factories from utils.py 
-from langchain_openai_voice.utils import get_asr_provider, get_tts_provider
+from src.langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 
 # WebSocket endpoint that receives audio from the browser,
 # Run it through ASR -> LLM -> TTS pipeline, and stream the response back to the client.

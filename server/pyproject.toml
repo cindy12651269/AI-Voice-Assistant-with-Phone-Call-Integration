@@ -1,14 +1,17 @@
 [project]
 name = "server"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI-Voice-Assistant-with-Phone-Call-Integration"
 readme = "README.md"
-requires-python = ">= 3.10"
+requires-python = ">=3.10"
+
 dependencies = [
     "langchain-community>=0.3.1",
     "langgraph>=0.2.32",
     "starlette>=0.39.2",
     "uvicorn[standard]>=0.31.0",
+    "twilio>=9.2.3",
+    "gunicorn>=23.0.0",
 ]
 
 [build-system]
@@ -17,3 +20,4 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 target-version = "py310"
+
