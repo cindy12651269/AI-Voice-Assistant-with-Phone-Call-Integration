@@ -66,13 +66,21 @@ async def homepage(request):
         html = f.read()
         return HTMLResponse(html)
 
-# Routes: Web UI + WebSocket
-routes = [Route("/", homepage), WebSocketRoute("/ws", websocket_endpoint)]
+# Healthcheck
+async def healthcheck(request):
+    return HTMLResponse("OK - Voice Agent Server Running")
+
+# Routes
+routes = [
+    Route("/", homepage),
+    Route("/health", healthcheck),
+    WebSocketRoute("/ws", websocket_endpoint),
+]
 
 app = Starlette(debug=True, routes=routes)
 
 # Serve static files (JS worklets etc.)
-app.mount("/", StaticFiles(directory="src/server/static"), name="static")
+app.mount("/static", StaticFiles(directory="src/server/static"), name="static")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
