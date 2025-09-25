@@ -102,8 +102,8 @@ routes = [
     Route("/", homepage),
     Route("/health", healthcheck),
     WebSocketRoute("/ws", websocket_endpoint),
-    # Twilio endpoints
-    Route("/twilio/voice", twilio_voice, methods=["POST"]),
+    # Twilio endpoints (now accept GET + POST for /twilio/voice)
+    Route("/twilio/voice", twilio_voice, methods=["GET", "POST"]),
     Route("/twilio/fallback", twilio_fallback, methods=["POST"]),
     Route("/twilio/status", twilio_status, methods=["POST"]),
 ]
