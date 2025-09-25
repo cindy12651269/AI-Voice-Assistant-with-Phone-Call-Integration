@@ -5,10 +5,11 @@ import os
 import time
 import uvicorn
 from starlette.applications import Starlette
-from starlette.responses import HTMLResponse
+from starlette.responses import HTMLResponse, PlainTextResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
+
 from src.langchain_openai_voice import OpenAIVoiceReactAgent
 from src.server.utils import websocket_stream
 from src.server.prompt import INSTRUCTIONS
@@ -17,14 +18,16 @@ from src.server.tools import TOOLS
 # Import provider factories from utils.py 
 from src.langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 
-# WebSocket endpoint that receives audio from the browser,
+# Import Twilio VoiceResponse to generate TwiML
+from twilio.twiml.voice_response import VoiceResponse
+
+# WebSocket endpoint: Receive audio from the browser
 # Run it through ASR -> LLM -> TTS pipeline, and stream the response back to the client.
 async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    # Stream of audio input from browser
+    await websocket.accept() # Stream of audio input from browser
     browser_receive_stream = websocket_stream(websocket)
 
-    # Choose providers from env vars (default = openai)
+    # Choose ASR and TTS providers from env vars (default = openai)
     asr_provider = get_asr_provider(os.getenv("ASR_PROVIDER", "openai"))
     tts_provider = get_tts_provider(os.getenv("TTS_PROVIDER", "openai"))
 
@@ -34,6 +37,7 @@ async def websocket_endpoint(websocket: WebSocket):
         tools=TOOLS,
         instructions=INSTRUCTIONS,
     )
+
     # Latency measurement starts
     start = time.perf_counter()
 
@@ -60,6 +64,28 @@ async def websocket_endpoint(websocket: WebSocket):
     print("TTS latency:", after_tts - after_llm, "seconds")
     # Latency measurement ends
 
+# Twilio Voice Webhooks
+# Main Voice webhook (when a call comes in)
+async def twilio_voice(request):
+    resp = VoiceResponse()
+    resp.say("Hello from your AI Voice Agent. The webhook is connected.",
+             voice="alice", language="en-US")
+    return PlainTextResponse(str(resp), media_type="application/xml")
+
+# Fallback handler (if the main webhook fails)
+async def twilio_fallback(request):
+    resp = VoiceResponse()
+    resp.say("Sorry, our agent is unavailable. Please try again later.",
+             voice="alice", language="en-US")
+    return PlainTextResponse(str(resp), media_type="application/xml")
+
+# Call status events (initiated, ringing, in-progress, completed)
+async def twilio_status(request):
+    # For now, just log status changes to console
+    form = await request.form()
+    print("Twilio call status:", dict(form))
+    return PlainTextResponse("ok")
+
 # Serve the homepage HTML file.
 async def homepage(request):
     with open("src/server/static/index.html") as f:
@@ -75,6 +101,10 @@ routes = [
     Route("/", homepage),
     Route("/health", healthcheck),
     WebSocketRoute("/ws", websocket_endpoint),
+    # Twilio endpoints
+    Route("/twilio/voice", twilio_voice, methods=["POST"]),
+    Route("/twilio/fallback", twilio_fallback, methods=["POST"]),
+    Route("/twilio/status", twilio_status, methods=["POST"]),
 ]
 
 app = Starlette(debug=True, routes=routes)
