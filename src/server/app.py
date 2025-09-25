@@ -65,8 +65,9 @@ async def websocket_endpoint(websocket: WebSocket):
     # Latency measurement ends
 
 # Twilio Voice Webhooks
-# Main Voice webhook (when a call comes in)
+# Main Voice webhook (accepts both GET + POST for easier testing)
 async def twilio_voice(request):
+    print("✅ [/twilio/voice] Incoming request received")  # Debug log
     resp = VoiceResponse()
     resp.say("Hello from your AI Voice Agent. The webhook is connected.",
              voice="alice", language="en-US")
@@ -74,6 +75,7 @@ async def twilio_voice(request):
 
 # Fallback handler (if the main webhook fails)
 async def twilio_fallback(request):
+    print("⚠️ [/twilio/fallback] Fallback handler triggered")  # Debug log
     resp = VoiceResponse()
     resp.say("Sorry, our agent is unavailable. Please try again later.",
              voice="alice", language="en-US")
@@ -81,9 +83,8 @@ async def twilio_fallback(request):
 
 # Call status events (initiated, ringing, in-progress, completed)
 async def twilio_status(request):
-    # For now, just log status changes to console
     form = await request.form()
-    print("Twilio call status:", dict(form))
+    print("📞 [/twilio/status] Call status update:", dict(form))  # Debug log
     return PlainTextResponse("ok")
 
 # Serve the homepage HTML file.
