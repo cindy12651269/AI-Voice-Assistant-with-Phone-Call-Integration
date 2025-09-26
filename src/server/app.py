@@ -68,14 +68,23 @@ async def websocket_endpoint(websocket: WebSocket):
 # Main Voice webhook (accepts both GET + POST for easier testing)
 async def twilio_voice(request):
     print("✅ [/twilio/voice] Incoming request received")  # Debug log
+    print("   ↳ Method:", request.method)                # Log HTTP method
+    try:
+        form = await request.form()
+        print("   ↳ Form data:", dict(form))             # Log Twilio POST body
+    except Exception:
+        print("   ↳ No form data (probably GET request)")  
+
     resp = VoiceResponse()
     resp.say("Hello from your AI Voice Agent. The webhook is connected.",
              voice="alice", language="en-US")
+    print("   ↳ Responding with TwiML <Say>")            # Log response
     return PlainTextResponse(str(resp), media_type="application/xml")
 
 # Fallback handler (if the main webhook fails)
 async def twilio_fallback(request):
     print("⚠️ [/twilio/fallback] Fallback handler triggered")  # Debug log
+    print("   ↳ Method:", request.method)
     resp = VoiceResponse()
     resp.say("Sorry, our agent is unavailable. Please try again later.",
              voice="alice", language="en-US")
