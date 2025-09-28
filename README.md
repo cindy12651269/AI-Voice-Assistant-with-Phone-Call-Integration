@@ -227,36 +227,89 @@ Open **Chrome DevTools (F12)** → Console/Network → check WebRTC stats:
 
 ---
 
-## 📞 Telephony Integration (Twilio / SIP)
+# 📞 Telephony Integration (Twilio / SIP)
 
-1) **Expose the server with ngrok** (for Twilio webhooks)
-```bash
-ngrok http 8000
-```
-- Copy the public URL (e.g., `https://abc123.ngrok.io`).
+This section documents the end-to-end steps for integrating telephony with the AI Voice Assistant using Twilio and SIP.
 
-2) **Configure Twilio Voice webhook**
-- Twilio Console → Phone Numbers → Your Number → Voice → A CALL COMES IN → Webhook  
-- Set to:
-```
-https://<ngrok-url>/twilio/voice
-```
+## Phone Number & Voice Webhook
 
-3) **Make a call to your Twilio number**
-- Speak normally
-- Expected server logs:
-```
-Incoming call from +1XXXX
-Received audio stream
-Transcribed: ...
-AI Response: ...
-Synthesized audio (bytes: 10240)
-```
-- You should hear the AI’s audio reply (stub or real TTS).
+* **Action**: Purchase or use a Twilio phone number.
+* **Configure**: Twilio Console → Phone Numbers → Voice → *A CALL COMES IN* → Webhook.
+* **URL**:
 
-Troubleshooting:
-- If no audio back, verify TwiML response, media passthrough, and server route `POST /twilio/voice`.
-- Ensure your env vars for ASR/TTS providers are set (or default to OpenAI).
+  ```
+  https://ai-voice-assistant-with-phone-call.onrender.com/twilio/voice
+  ```
+* **HTTP Method**: POST
+* **Validation**: Incoming call can be routed to the webhook.
+* **Acceptance Criteria**: Server log shows webhook hit.
+
+## Minimal Webhook Response
+
+* **Code**: `app.py` → `/twilio/voice` route with TwiML `<Say>`.
+* **Test**: Open in browser:
+
+  ```
+  https://ai-voice-assistant-with-phone-call.onrender.com/twilio/voice
+  ```
+* **Expected Output**:
+
+  ```xml
+  <Response>
+    <Say language="en-US" voice="alice">
+      Hello from your AI Voice Agent. The webhook is connected.
+    </Say>
+  </Response>
+  ```
+* **Acceptance Criteria**: Render logs show:
+
+  ```
+  ✅ [/twilio/voice] Incoming request received
+     ↳ Method: POST
+     ↳ Form data: {...}
+     ↳ Responding with TwiML <Say>
+  ```
+
+## Media Streams Processing
+
+* **Action**: Add TwiML `<Stream>` to forward live audio.
+* **Server**: Implement WebSocket handler to receive audio.
+* **Audio Handling**: µ-law → PCM/WAV conversion.
+* **Acceptance Criteria**: Logs confirm streaming events received.
+
+## DTMF Input Handling
+
+* **Action**: Use TwiML `<Gather>` for keypad input.
+* **Event**: Capture digits via POST webhook.
+* **Acceptance Criteria**: Logs confirm digit pressed (e.g., `Digit=1`).
+
+## Outbound Call Demo
+
+* **Option A**: Run locally
+
+  ```bash
+  python src/server/make_call.py
+  ```
+* **Option B**: Trigger via Render API route
+
+  ```
+  GET https://ai-voice-assistant-with-phone-call.onrender.com/callme
+  ```
+* **Expected**: Twilio Call Logs show outbound call; Render logs confirm webhook triggered.
+* **Acceptance Criteria**: Outbound call log present in Twilio Console.
+
+## SIP.js Web Softphone
+
+* **Action**: Configure SIP.js client in browser.
+* **Connect**: Twilio Voice → SIP.js endpoint.
+* **Test**: Call from browser → AI Voice Agent.
+* **Acceptance Criteria**: Two-way audio established between browser and server.
+
+## ⚠️ Notes
+
+* For demo purposes, validation relies on Render logs + Twilio Call Logs.
+* Taiwan carriers may block US numbers due to STIR/SHAKEN filtering. If inbound calls do not ring, outbound demo logs are sufficient for portfolio presentation.
+* Optionally use Twilio numbers from Hong Kong (+852) or Singapore (+65) for more reliable international delivery.
 
 ---
 
@@ -267,7 +320,7 @@ Troubleshooting:
 2) **Start JS demo** (same as M1), then open http://localhost:3000.
 
 3) **Speak into the mic** and observe the end-to-end loop:
-- Expected server logs:
+- Expected server logsㄦ
 ```
 Received audio stream
 Transcribed: "what's the weather"
