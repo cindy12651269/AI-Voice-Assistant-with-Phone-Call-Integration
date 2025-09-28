@@ -20,6 +20,7 @@ from src.langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 
 # Import Twilio VoiceResponse to generate TwiML
 from twilio.twiml.voice_response import VoiceResponse
+from twilio.rest import Client
 
 # WebSocket endpoint: Receive audio from the browser
 # Run it through ASR -> LLM -> TTS pipeline, and stream the response back to the client.
@@ -96,6 +97,23 @@ async def twilio_status(request):
     print("📞 [/twilio/status] Call status update:", dict(form))  # Debug log
     return PlainTextResponse("ok")
 
+# Outbound call trigger API
+async def callme(request):
+    print("📞 [/callme] Triggering outbound call via Twilio")  # Debug log
+
+    client = Client(
+        os.getenv("TWILIO_ACCOUNT_SID"),
+        os.getenv("TWILIO_AUTH_TOKEN")
+    )
+
+    call = client.calls.create(
+        to=os.getenv("MY_PHONE_NUMBER", "+886986312485"),
+        from_=os.getenv("TWILIO_PHONE_NUMBER", "+19566920691"),
+        url="https://ai-voice-assistant-with-phone-call.onrender.com/twilio/voice"
+    )
+
+    return PlainTextResponse(f"✅ Call triggered, SID: {call.sid}")
+
 # Serve the homepage HTML file.
 async def homepage(request):
     with open("src/server/static/index.html") as f:
@@ -112,6 +130,7 @@ routes = [
     Route("/health", healthcheck),
     WebSocketRoute("/ws", websocket_endpoint),
     # Twilio endpoints (now accept GET + POST for /twilio/voice)
+    Route("/callme", callme, methods=["GET"]),
     Route("/twilio/voice", twilio_voice, methods=["GET", "POST"]),
     Route("/twilio/fallback", twilio_fallback, methods=["POST"]),
     Route("/twilio/status", twilio_status, methods=["POST"]),
