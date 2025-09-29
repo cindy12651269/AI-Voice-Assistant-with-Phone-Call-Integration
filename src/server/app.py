@@ -4,6 +4,7 @@ load_dotenv()
 import os
 import time
 import uvicorn
+import base64, audioop
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, PlainTextResponse
 from starlette.routing import Route, WebSocketRoute
@@ -19,11 +20,11 @@ from src.server.tools import TOOLS
 from src.langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 
 # Import Twilio VoiceResponse to generate TwiML
-from twilio.twiml.voice_response import VoiceResponse
+from twilio.twiml.voice_response import VoiceResponse, Start, Gather
 from twilio.rest import Client
 
-# WebSocket endpoint: Receive audio from the browser
-# Run it through ASR -> LLM -> TTS pipeline, and stream the response back to the client.
+# Browser WebSocket endpoint (ASR → LLM → TTS pipeline)
+# Receive audio from the browser, and stream the response back to the client.
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept() # Stream of audio input from browser
     browser_receive_stream = websocket_stream(websocket)
@@ -65,21 +66,56 @@ async def websocket_endpoint(websocket: WebSocket):
     print("TTS latency:", after_tts - after_llm, "seconds")
     # Latency measurement ends
 
-# Twilio Voice Webhooks
+# Twilio Voice Webhook (Media Stream + DTMF)
 # Main Voice webhook (accepts both GET + POST for easier testing)
 async def twilio_voice(request):
-    print("✅ [/twilio/voice] Incoming request received")  # Debug log
-    print("   ↳ Method:", request.method)                # Log HTTP method
+    print("✅ [/twilio/voice] Incoming request received (Media Stream mode)")
+    print("   ↳ Method:", request.method)
+
     try:
         form = await request.form()
-        print("   ↳ Form data:", dict(form))             # Log Twilio POST body
+        print("   ↳ Form data:", dict(form))
     except Exception:
-        print("   ↳ No form data (probably GET request)")  
+        print("   ↳ No form data (probably GET request)")
 
     resp = VoiceResponse()
-    resp.say("Hello from your AI Voice Agent. The webhook is connected.",
-             voice="alice", language="en-US")
-    print("   ↳ Responding with TwiML <Say>")            # Log response
+    
+    # Media Stream
+    start = Start()
+    start.stream(url="wss://ai-voice-assistant-with-phone-call.onrender.com/twilio/stream")
+    resp.append(start)
+    
+    # Greeting
+    resp.say("You are now connected to the AI Voice Agent.", voice="alice", language="en-US")
+    
+    # Gather DTMF input
+    gather = Gather(
+        input="dtmf",
+        num_digits=1,
+        action="/twilio/dtmf",
+        method="POST"
+    )
+    gather.say("Press 1 to continue talking to the AI agent, or 2 to end the call.", voice="alice")
+    resp.append(gather)
+
+    print("   ↳ Responding with TwiML <Stream> + <Say>")
+    return PlainTextResponse(str(resp), media_type="application/xml")
+
+# Twilio DTMF handler
+async def twilio_dtmf(request):
+    form = await request.form()
+    digit = form.get("Digits")
+    print(f"[/twilio/dtmf] Digit pressed: {digit}")
+
+    resp = VoiceResponse()
+    if digit == "1":
+        resp.say("You chose to continue with the AI agent.", voice="alice")
+    elif digit == "2":
+        resp.say("Goodbye!", voice="alice")
+        resp.hangup()
+    else:
+        resp.say("Invalid input. Please try again.", voice="alice")
+
     return PlainTextResponse(str(resp), media_type="application/xml")
 
 # Fallback handler (if the main webhook fails)
@@ -114,6 +150,34 @@ async def callme(request):
 
     return PlainTextResponse(f"✅ Call triggered, SID: {call.sid}")
 
+# Twilio Media Stream WebSocket endpoint
+async def twilio_stream(websocket: WebSocket):
+    await websocket.accept()
+    print("🎧 Twilio Media Stream connected")
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            event = message.get("event")
+
+            if event == "start":
+                print(f"📞 Call started: {message}")
+
+            elif event == "media":
+                audio_payload = message["media"]["payload"]
+                raw = base64.b64decode(audio_payload)
+                pcm = audioop.ulaw2lin(raw, 2)  # μ-law → PCM16
+                print(f"🎤 Received audio chunk: ulaw={len(raw)}, pcm={len(pcm)}")
+
+            elif event == "stop":
+                print("🛑 Call ended")
+                break
+
+    except Exception as e:
+        print("⚠️ Twilio stream error:", e)
+    finally:
+        await websocket.close()
+
 # Serve the homepage HTML file.
 async def homepage(request):
     with open("src/server/static/index.html") as f:
@@ -132,8 +196,10 @@ routes = [
     # Twilio endpoints (now accept GET + POST for /twilio/voice)
     Route("/callme", callme, methods=["GET"]),
     Route("/twilio/voice", twilio_voice, methods=["GET", "POST"]),
+    Route("/twilio/dtmf", twilio_dtmf, methods=["POST"]),
     Route("/twilio/fallback", twilio_fallback, methods=["POST"]),
     Route("/twilio/status", twilio_status, methods=["POST"]),
+    WebSocketRoute("/twilio/stream", twilio_stream),
 ]
 
 app = Starlette(debug=True, routes=routes)
