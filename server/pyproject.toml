@@ -12,6 +12,8 @@ dependencies = [
     "uvicorn[standard]>=0.31.0",
     "twilio>=9.2.3",
     "gunicorn>=23.0.0",
+    "python-dotenv>=1.0.1",
+    "g711==1.6.5",
 ]
 
 [build-system]

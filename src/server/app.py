@@ -156,7 +156,7 @@ async def callme(request):
     call = client.calls.create(
         to=my_number,
         from_=twilio_number,
-        url=f"https://{PUBLIC_URL}/twilio/voice"
+        url=f"{PUBLIC_URL}/twilio/voice"
     )
 
     return PlainTextResponse(f"✅ Call triggered, SID: {call.sid}")
