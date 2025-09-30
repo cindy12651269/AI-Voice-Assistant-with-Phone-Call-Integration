@@ -15,6 +15,7 @@ from starlette.responses import HTMLResponse, PlainTextResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
+from starlette.responses import FileResponse
 
 from src.langchain_openai_voice import OpenAIVoiceReactAgent
 from src.server.utils import websocket_stream
@@ -240,6 +241,17 @@ async def twilio_stream(websocket: WebSocket):
         finally:
             await websocket.close()
 
+# HTTP endpoint to download recordings
+async def get_recording(request):
+    filename = request.path_params["filename"]
+    file_path = os.path.join(RECORDINGS_DIR, filename)
+    if os.path.exists(file_path):
+        print(f"⬇️ Downloading recording: {file_path}")
+        return FileResponse(file_path, media_type="audio/wav", filename=filename)
+    else:
+        print(f"❌ Recording not found: {file_path}")
+        return PlainTextResponse("Recording not found", status_code=404)
+    
 # Serve the homepage HTML file.
 async def homepage(request):
     with open("src/server/static/index.html") as f:
@@ -262,6 +274,7 @@ routes = [
     Route("/twilio/fallback", twilio_fallback, methods=["POST"]),
     Route("/twilio/status", twilio_status, methods=["POST"]),
     WebSocketRoute("/twilio/stream", twilio_stream),
+    Route("/recordings/{filename}", get_recording, methods=["GET"]),
 ]
 
 app = Starlette(debug=True, routes=routes)
