@@ -4,7 +4,8 @@ load_dotenv()
 import os
 import time
 import uvicorn
-import base64, audioop
+import base64
+import g711
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, PlainTextResponse
 from starlette.routing import Route, WebSocketRoute
@@ -22,6 +23,11 @@ from src.langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 # Import Twilio VoiceResponse to generate TwiML
 from twilio.twiml.voice_response import VoiceResponse, Start, Gather
 from twilio.rest import Client
+
+# PUBLIC_URL (must include https:// in .env)
+PUBLIC_URL = os.getenv("PUBLIC_URL")
+if not PUBLIC_URL:
+    raise ValueError("PUBLIC_URL is not set. Please add it to your .env (e.g. https://your-service.onrender.com)")
 
 # Browser WebSocket endpoint (ASR → LLM → TTS pipeline)
 # Receive audio from the browser, and stream the response back to the client.
@@ -82,7 +88,7 @@ async def twilio_voice(request):
     
     # Media Stream
     start = Start()
-    start.stream(url="wss://ai-voice-assistant-with-phone-call.onrender.com/twilio/stream")
+    start.stream(url=f"{PUBLIC_URL.replace('https://','wss://')}/twilio/stream")
     resp.append(start)
     
     # Greeting
@@ -92,13 +98,13 @@ async def twilio_voice(request):
     gather = Gather(
         input="dtmf",
         num_digits=1,
-        action="/twilio/dtmf",
+        action=f"{PUBLIC_URL}/twilio/dtmf",
         method="POST"
     )
     gather.say("Press 1 to continue talking to the AI agent, or 2 to end the call.", voice="alice")
     resp.append(gather)
 
-    print("   ↳ Responding with TwiML <Stream> + <Say>")
+    print("   ↳ Responding with TwiML <Stream> + <Say> + <Gather>")
     return PlainTextResponse(str(resp), media_type="application/xml")
 
 # Twilio DTMF handler
@@ -141,11 +147,16 @@ async def callme(request):
         os.getenv("TWILIO_ACCOUNT_SID"),
         os.getenv("TWILIO_AUTH_TOKEN")
     )
+    
+    # Read config from .env
+    my_number = os.getenv("MY_PHONE_NUMBER")
+    twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
 
+    # Trigger outbound call
     call = client.calls.create(
-        to=os.getenv("MY_PHONE_NUMBER", "+886986312485"),
-        from_=os.getenv("TWILIO_PHONE_NUMBER", "+19566920691"),
-        url="https://ai-voice-assistant-with-phone-call.onrender.com/twilio/voice"
+        to=my_number,
+        from_=twilio_number,
+        url=f"https://{PUBLIC_URL}/twilio/voice"
     )
 
     return PlainTextResponse(f"✅ Call triggered, SID: {call.sid}")
@@ -157,18 +168,19 @@ async def twilio_stream(websocket: WebSocket):
 
     try:
         while True:
-            message = await websocket.receive_json()
+            try:
+                message = await websocket.receive_json()
+            except Exception as e:
+                print("⚠️ JSON parse error:", e)
+                continue
             event = message.get("event")
-
             if event == "start":
                 print(f"📞 Call started: {message}")
-
             elif event == "media":
                 audio_payload = message["media"]["payload"]
                 raw = base64.b64decode(audio_payload)
-                pcm = audioop.ulaw2lin(raw, 2)  # μ-law → PCM16
+                pcm = g711.ulaw2lin(raw)  # μ-law → PCM16
                 print(f"🎤 Received audio chunk: ulaw={len(raw)}, pcm={len(pcm)}")
-
             elif event == "stop":
                 print("🛑 Call ended")
                 break

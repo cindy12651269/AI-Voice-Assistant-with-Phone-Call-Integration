@@ -252,7 +252,7 @@ This section documents the end-to-end steps for integrating telephony with the A
   ```
   https://ai-voice-assistant-with-phone-call.onrender.com/twilio/voice
   ```
-* **Expected Output**:
+* **Expected Output (initial minimal version)**:
 
   ```xml
   <Response>
@@ -261,13 +261,15 @@ This section documents the end-to-end steps for integrating telephony with the A
     </Say>
   </Response>
   ```
+* **Current Implementation**: The code has been upgraded to return TwiML with `<Stream>` (for audio streaming) and `<Gather>` (for DTMF input), in addition to `<Say>`.
+
 * **Acceptance Criteria**: Render logs show:
 
   ```
   ✅ [/twilio/voice] Incoming request received
      ↳ Method: POST
      ↳ Form data: {...}
-     ↳ Responding with TwiML <Say>
+     ↳ Responding with TwiML <Stream> + <Say> + <Gather>
   ```
 
 ## Media Streams Processing
@@ -275,7 +277,12 @@ This section documents the end-to-end steps for integrating telephony with the A
 * **Action**: Add TwiML `<Stream>` to forward live audio.
 * **Server**: Implement WebSocket handler to receive audio.
 * **Audio Handling**: µ-law → PCM/WAV conversion.
-* **Acceptance Criteria**: Logs confirm streaming events received.
+* **Acceptance Criteria**: Logs confirm streaming events received, e.g.:
+
+  ```
+  🎧 Twilio Media Stream connected
+  🎤 Received audio chunk: ulaw=160, pcm=320
+  ```
 
 ## DTMF Input Handling
 
@@ -308,8 +315,9 @@ This section documents the end-to-end steps for integrating telephony with the A
 ## ⚠️ Notes
 
 * For demo purposes, validation relies on Render logs + Twilio Call Logs.
-* Taiwan carriers may block US numbers due to STIR/SHAKEN filtering. If inbound calls do not ring, outbound demo logs are sufficient for portfolio presentation.
-* Optionally use Twilio numbers from Hong Kong (+852) or Singapore (+65) for more reliable international delivery.
+* **Inbound calling to Taiwan mobiles may fail** due to local carrier restrictions (STIR/SHAKEN filtering). This is expected even on paid accounts.
+* **Outbound calling works reliably** once Caller ID is verified.
+* For portfolio/demo purposes, outbound calls (via `/callme`) or Twilio numbers from Hong Kong (+852) or Singapore (+65) are recommended for cross-border reliability.
 
 ---
 
