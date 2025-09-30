@@ -126,8 +126,27 @@ async def twilio_dtmf(request):
     print(f"[/twilio/dtmf] Digit pressed: {digit}")
 
     resp = VoiceResponse()
+
     if digit == "1":
         resp.say("You chose to continue with the AI agent.", voice="alice")
+
+        # Re-attach Media Stream to keep audio flowing
+        start = Start()
+        wss_url = f"{PUBLIC_URL.replace('https://', 'wss://')}/twilio/stream"
+        start.stream(url=wss_url)
+        resp.append(start)
+
+        # Add another Gather for next DTMF input
+        gather = Gather(
+            input="dtmf",
+            num_digits=1,
+            action=f"{PUBLIC_URL}/twilio/dtmf",
+            method="POST",
+            timeout=5,
+        )
+        gather.say("Press 1 to keep talking, or 2 to hang up.", voice="alice")
+        resp.append(gather)
+
     elif digit == "2":
         resp.say("Goodbye!", voice="alice")
         resp.hangup()
