@@ -6,3 +6,5 @@ twilio>=9.2.3
 gunicorn>=23.0.0
 python-dotenv>=1.0.1
 g711==1.6.5
+python-multipart==0.0.9
+
