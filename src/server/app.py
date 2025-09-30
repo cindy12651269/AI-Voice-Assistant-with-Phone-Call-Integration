@@ -5,7 +5,11 @@ import os
 import time
 import uvicorn
 import base64
-import g711
+import wave
+from datetime import datetime
+import numpy as np          # for PCM16 buffer handling
+import g711                 # μ-law <-> PCM helpers
+
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, PlainTextResponse
 from starlette.routing import Route, WebSocketRoute
@@ -28,6 +32,11 @@ from twilio.rest import Client
 PUBLIC_URL = os.getenv("PUBLIC_URL")
 if not PUBLIC_URL:
     raise ValueError("PUBLIC_URL is not set. Please add it to your .env (e.g. https://your-service.onrender.com)")
+
+# Directory for server-side recordings (ephemeral on Render; persists until redeploy)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
+os.makedirs(RECORDINGS_DIR, exist_ok=True) # Create if not exists
 
 # Browser WebSocket endpoint (ASR → LLM → TTS pipeline)
 # Receive audio from the browser, and stream the response back to the client.
@@ -86,9 +95,10 @@ async def twilio_voice(request):
 
     resp = VoiceResponse()
     
-    # Media Stream
+    # Media Streams (Twilio will open a WSS to /twilio/stream)
     start = Start()
-    start.stream(url=f"{PUBLIC_URL.replace('https://','wss://')}/twilio/stream")
+    wss_url = f"{PUBLIC_URL.replace('https://', 'wss://')}/twilio/stream"
+    start.stream(url=wss_url)
     resp.append(start)
     
     # Greeting
@@ -99,7 +109,8 @@ async def twilio_voice(request):
         input="dtmf",
         num_digits=1,
         action=f"{PUBLIC_URL}/twilio/dtmf",
-        method="POST"
+        method="POST",
+        timeout=5,
     )
     gather.say("Press 1 to continue talking to the AI agent, or 2 to end the call.", voice="alice")
     resp.append(gather)
@@ -162,9 +173,13 @@ async def callme(request):
     return PlainTextResponse(f"✅ Call triggered, SID: {call.sid}")
 
 # Twilio Media Stream WebSocket endpoint
+# Receive μ-law audio frames from Twilio, decode to PCM16, and record to WAV file.
 async def twilio_stream(websocket: WebSocket):
     await websocket.accept()
     print("🎧 Twilio Media Stream connected")
+
+    wav_writer = None
+    wav_path = None
 
     try:
         while True:
@@ -173,22 +188,57 @@ async def twilio_stream(websocket: WebSocket):
             except Exception as e:
                 print("⚠️ JSON parse error:", e)
                 continue
+
             event = message.get("event")
+
             if event == "start":
+                # Use streamSid + timestamp as filename to avoid collisions
+                stream_sid = message.get("start", {}).get("streamSid") or message.get("streamSid")
+                ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+                filename = f"call-{ts}-{stream_sid}.wav" if stream_sid else f"call-{ts}.wav"
+                wav_path = os.path.join(RECORDINGS_DIR, filename)
+
+                # Open WAV writer (8kHz, mono, 16-bit)
+                wav_writer = wave.open(wav_path, "wb")
+                wav_writer.setnchannels(1)
+                wav_writer.setsampwidth(2)     # 16-bit
+                wav_writer.setframerate(8000)
+
+                print(f"📁 Recording started → {wav_path}")
                 print(f"📞 Call started: {message}")
+
             elif event == "media":
+                if not wav_writer:
+                    continue  # safety guard
+
+                # Twilio sends base64-encoded μ-law @ 8kHz mono
                 audio_payload = message["media"]["payload"]
-                raw = base64.b64decode(audio_payload)
-                pcm = g711.ulaw2lin(raw)  # μ-law → PCM16
-                print(f"🎤 Received audio chunk: ulaw={len(raw)}, pcm={len(pcm)}")
+                ulaw_bytes = base64.b64decode(audio_payload)
+
+                # μ-law -> PCM16 (numpy array of int16)
+                pcm_array = g711.decode_ulaw(ulaw_bytes)
+                # Ensure dtype int16 then to raw bytes
+                pcm_bytes = np.asarray(pcm_array, dtype=np.int16).tobytes()
+
+                # Append raw PCM frames to WAV
+                wav_writer.writeframes(pcm_bytes)
+
+                print(f"🎤 Received audio chunk: ulaw={len(ulaw_bytes)} bytes, pcm={len(pcm_bytes)} bytes")
+
             elif event == "stop":
-                print("🛑 Call ended")
+                print("🛑 Call ended (stop event)")
                 break
 
     except Exception as e:
         print("⚠️ Twilio stream error:", e)
     finally:
-        await websocket.close()
+        # Close the WAV file so header is finalized
+        try:
+            if wav_writer is not None:
+                wav_writer.close()
+                print(f"✅ Recording saved: {wav_path}")
+        finally:
+            await websocket.close()
 
 # Serve the homepage HTML file.
 async def homepage(request):
