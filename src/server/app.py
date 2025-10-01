@@ -8,7 +8,7 @@ import base64
 import wave
 from datetime import datetime
 import numpy as np          # for PCM16 buffer handling
-import g711                 # μ-law <-> PCM helpers
+import g711                 # g711: μ-law <-> PCM helpers
 
 from starlette.applications import Starlette
 from starlette.responses import HTMLResponse, PlainTextResponse
@@ -26,7 +26,7 @@ from src.server.tools import TOOLS
 from src.langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 
 # Import Twilio VoiceResponse to generate TwiML
-from twilio.twiml.voice_response import VoiceResponse, Start, Gather
+from twilio.twiml.voice_response import VoiceResponse
 from twilio.rest import Client
 
 # PUBLIC_URL (must include https:// in .env)
@@ -82,77 +82,34 @@ async def websocket_endpoint(websocket: WebSocket):
     print("TTS latency:", after_tts - after_llm, "seconds")
     # Latency measurement ends
 
-# Twilio Voice Webhook (Media Stream + DTMF)
-# Main Voice webhook (accepts both GET + POST for easier testing)
+# Twilio Voice Webhook (Connect<Stream> + Say tips; NO <Gather>) 
+# To open a bidirectional Media Stream, DTMF events will be delivered over the same WebSocket as JSON (event='dtmf').
 async def twilio_voice(request):
-    print("✅ [/twilio/voice] Incoming request received (Media Stream mode)")
+    print("✅ [/twilio/voice] Incoming request (Connect<Stream> mode)")
     print("   ↳ Method:", request.method)
 
+    # Twilio typically POSTs form data. Log it if available (debugging aid).
     try:
         form = await request.form()
-        print("   ↳ Form data:", dict(form))
+        form_dict = dict(form)
+        print("   ↳ Form data keys:", list(form_dict.keys()))
     except Exception:
-        print("   ↳ No form data (probably GET request)")
+        print("   ↳ No form data (likely GET test from browser)")
 
     resp = VoiceResponse()
-    
-    # Media Streams (Twilio will open a WSS to /twilio/stream)
-    start = Start()
+
+    # Build WSS URL from PUBLIC_URL
     wss_url = f"{PUBLIC_URL.replace('https://', 'wss://')}/twilio/stream"
-    start.stream(url=wss_url)
-    resp.append(start)
-    
-    # Greeting
+
+    # Use <Connect><Stream> (keeps media flowing; DTMF delivered as JSON events)
+    with resp.connect() as connect:
+        connect.stream(url=wss_url)
+
+    # Optional voice prompts (No <Gather> to avoid pausing the stream)
     resp.say("You are now connected to the AI Voice Agent.", voice="alice", language="en-US")
-    
-    # Gather DTMF input
-    gather = Gather(
-        input="dtmf",
-        num_digits=1,
-        action=f"{PUBLIC_URL}/twilio/dtmf",
-        method="POST",
-        timeout=5,
-    )
-    gather.say("Press 1 to continue talking to the AI agent, or 2 to end the call.", voice="alice")
-    resp.append(gather)
+    resp.say("Press 1 to continue talking, or 2 to hang up.", voice="alice", language="en-US")
 
-    print("   ↳ Responding with TwiML <Stream> + <Say> + <Gather>")
-    return PlainTextResponse(str(resp), media_type="application/xml")
-
-# Twilio DTMF handler
-async def twilio_dtmf(request):
-    form = await request.form()
-    digit = form.get("Digits")
-    print(f"[/twilio/dtmf] Digit pressed: {digit}")
-
-    resp = VoiceResponse()
-
-    if digit == "1":
-        resp.say("You chose to continue with the AI agent.", voice="alice")
-
-        # Re-attach Media Stream to keep audio flowing
-        start = Start()
-        wss_url = f"{PUBLIC_URL.replace('https://', 'wss://')}/twilio/stream"
-        start.stream(url=wss_url)
-        resp.append(start)
-
-        # Add another Gather for next DTMF input
-        gather = Gather(
-            input="dtmf",
-            num_digits=1,
-            action=f"{PUBLIC_URL}/twilio/dtmf",
-            method="POST",
-            timeout=5,
-        )
-        gather.say("Press 1 to keep talking, or 2 to hang up.", voice="alice")
-        resp.append(gather)
-
-    elif digit == "2":
-        resp.say("Goodbye!", voice="alice")
-        resp.hangup()
-    else:
-        resp.say("Invalid input. Please try again.", voice="alice")
-
+    print("   ↳ Responding with TwiML <Connect><Stream> + <Say> prompts")
     return PlainTextResponse(str(resp), media_type="application/xml")
 
 # Fallback handler (if the main webhook fails)
@@ -164,13 +121,17 @@ async def twilio_fallback(request):
              voice="alice", language="en-US")
     return PlainTextResponse(str(resp), media_type="application/xml")
 
-# Call status events (initiated, ringing, in-progress, completed)
+# Call status events (initiated, ringing, in-progress, completed) for analytics/debugging
 async def twilio_status(request):
-    form = await request.form()
-    print("📞 [/twilio/status] Call status update:", dict(form))  # Debug log
+    try:
+        form = await request.form()
+        print("📞 [/twilio/status] Call status:", dict(form))
+    except Exception as e:
+        print("📞 [/twilio/status] No form; err:", e)
     return PlainTextResponse("ok")
 
 # Outbound call trigger API
+# Twilio will fetch TwiML from /twilio/voice, which opens the media stream.
 async def callme(request):
     print("📞 [/callme] Triggering outbound call via Twilio")  # Debug log
 
@@ -182,14 +143,17 @@ async def callme(request):
     # Read config from .env
     my_number = os.getenv("MY_PHONE_NUMBER")
     twilio_number = os.getenv("TWILIO_PHONE_NUMBER")
-
+    
+    if not my_number or not twilio_number:
+        return PlainTextResponse("Missing MY_PHONE_NUMBER or TWILIO_PHONE_NUMBER", status_code=500)
+    
     # Trigger outbound call
     call = client.calls.create(
         to=my_number,
         from_=twilio_number,
         url=f"{PUBLIC_URL}/twilio/voice"
     )
-
+    print(f"   ↳ Outbound Call SID: {call.sid}")
     return PlainTextResponse(f"✅ Call triggered, SID: {call.sid}")
 
 # Twilio Media Stream WebSocket endpoint
@@ -200,61 +164,94 @@ async def twilio_stream(websocket: WebSocket):
 
     wav_writer = None
     wav_path = None
+    total_media_msgs = 0
 
     try:
         while True:
+            # Receive next JSON frame
             try:
                 message = await websocket.receive_json()
             except Exception as e:
-                print("⚠️ JSON parse error:", e)
+                print("⚠️ JSON parse error (non-JSON frame?):", e)
                 continue
 
             event = message.get("event")
 
             if event == "start":
-                # Use streamSid + timestamp as filename to avoid collisions
-                stream_sid = message.get("start", {}).get("streamSid") or message.get("streamSid")
+                start_info = message.get("start", {})
+                stream_sid = start_info.get("streamSid") or message.get("streamSid")
+                sample_rate = start_info.get("mediaFormat", {}).get("sampleRate", 8000)
+                encoding = start_info.get("mediaFormat", {}).get("encoding")
+
+                # Generate a unique filename per stream
                 ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
                 filename = f"call-{ts}-{stream_sid}.wav" if stream_sid else f"call-{ts}.wav"
                 wav_path = os.path.join(RECORDINGS_DIR, filename)
 
-                # Open WAV writer (8kHz, mono, 16-bit)
+                # Open WAV writer: mono, 16-bit, 8kHz
                 wav_writer = wave.open(wav_path, "wb")
                 wav_writer.setnchannels(1)
-                wav_writer.setsampwidth(2)     # 16-bit
-                wav_writer.setframerate(8000)
+                wav_writer.setsampwidth(2)
+                wav_writer.setframerate(int(sample_rate))
 
                 print(f"📁 Recording started → {wav_path}")
-                print(f"📞 Call started: {message}")
+                print(f"📞 Call metadata: streamSid={stream_sid}, encoding={encoding}, sr={sample_rate}")
 
             elif event == "media":
+                # Ensure we started recording
                 if not wav_writer:
-                    continue  # safety guard
+                    print("⚠️ Received media before 'start'; ignoring chunk")
+                    continue
 
-                # Twilio sends base64-encoded μ-law @ 8kHz mono
-                audio_payload = message["media"]["payload"]
-                ulaw_bytes = base64.b64decode(audio_payload)
+                # Twilio sends base64 μ-law (20ms per frame; typically 160 bytes)
+                payload_b64 = message.get("media", {}).get("payload")
+                if not payload_b64:
+                    print("⚠️ Empty media payload")
+                    continue
 
-                # μ-law -> PCM16 (numpy array of int16)
-                pcm_array = g711.decode_ulaw(ulaw_bytes)
-                # Ensure dtype int16 then to raw bytes
+                ulaw_bytes = base64.b64decode(payload_b64)
+                if not ulaw_bytes:
+                    print("⚠️ media payload base64-decoded to empty bytes")
+                    continue
+
+                # μ-law → PCM16 (numpy array of int16)
+                try:
+                    pcm_array = g711.decode_ulaw(ulaw_bytes)
+                except Exception as e:
+                    print("❌ μ-law decode failed:", e)
+                    continue
+
                 pcm_bytes = np.asarray(pcm_array, dtype=np.int16).tobytes()
 
-                # Append raw PCM frames to WAV
+                # Append raw PCM frames
                 wav_writer.writeframes(pcm_bytes)
+                total_media_msgs += 1
 
-                print(f"🎤 Received audio chunk: ulaw={len(ulaw_bytes)} bytes, pcm={len(pcm_bytes)} bytes")
+                # Debug: first few chunks print more details, afterwards compact
+                if total_media_msgs <= 10:
+                    print(f"🎤 Media chunk #{total_media_msgs}: ulaw={len(ulaw_bytes)}B, pcm={len(pcm_bytes)}B")
+                elif total_media_msgs % 100 == 0:
+                    print(f"… received {total_media_msgs} media chunks so far")
+
+            elif event == "dtmf":
+                # Twilio delivers DTMF without breaking the stream when using <Connect><Stream>
+                digit = message.get("dtmf", {}).get("digit")
+                dur = message.get("dtmf", {}).get("duration")
+                print(f"🎹 DTMF received: digit={digit}, duration={dur}ms (stream continues)")
 
             elif event == "stop":
-                print("🛑 Call ended (stop event)")
+                print(f"🛑 Stop event received. Total media chunks = {total_media_msgs}")
                 break
+
+            else:
+                print(f"ℹ️ Unknown event '{event}': {message}")
 
     except Exception as e:
         print("⚠️ Twilio stream error:", e)
+
     finally:
-        # Close the WAV file so header is finalized
         try:
-            if wav_writer is not None:
+            if wav_writer:
                 wav_writer.close()
                 print(f"✅ Recording saved: {wav_path}")
         finally:
@@ -286,13 +283,16 @@ routes = [
     Route("/", homepage),
     Route("/health", healthcheck),
     WebSocketRoute("/ws", websocket_endpoint),
-    # Twilio endpoints (now accept GET + POST for /twilio/voice)
-    Route("/callme", callme, methods=["GET"]),
-    Route("/twilio/voice", twilio_voice, methods=["GET", "POST"]),
-    Route("/twilio/dtmf", twilio_dtmf, methods=["POST"]),
-    Route("/twilio/fallback", twilio_fallback, methods=["POST"]),
+    
+    # Twilio flows
+    Route("/twilio/voice", twilio_voice, methods=["GET", "POST"]), # Now accept GET + POST for /twilio/voice
     Route("/twilio/status", twilio_status, methods=["POST"]),
     WebSocketRoute("/twilio/stream", twilio_stream),
+
+    # Outbound trigger
+    Route("/callme", callme, methods=["GET"]),
+
+    # Recording download
     Route("/recordings/{filename}", get_recording, methods=["GET"]),
 ]
 
