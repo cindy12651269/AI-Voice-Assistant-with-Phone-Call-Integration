@@ -87,15 +87,11 @@ async def websocket_endpoint(websocket: WebSocket):
     print("TTS latency:", after_tts - after_llm, "seconds")
     # Latency measurement ends
 
-# Twilio Voice Webhook (Connect<Stream> + Say tips; NO <Gather>) 
+# Twilio Voice Webhook (Connect<Stream> + Say tips; NO <Gather>)
 async def twilio_voice(request):
     print("✅ [/twilio/voice] Incoming request (Connect<Stream>)")
-    try:
-        form = await request.form()
-        print("   ↳ Form data keys:", list(dict(form).keys()))
-    except Exception:
-        print("   ↳ No form data")
 
+    # Build VoiceResponse first (non-blocking)
     resp = VoiceResponse()
 
     # Media Stream
@@ -113,9 +109,16 @@ async def twilio_voice(request):
     resp.say("You are now connected to the AI Voice Agent.", voice="alice", language="en-US")
     resp.say("Press 1 to continue talking, or 2 to hang up.", voice="alice", language="en-US")
 
-    # Debug: log final TwiML
+    # Debug: log TwiML
     twiml_str = str(resp)
     print("🔍 TwiML sent to Twilio:\n", twiml_str)
+
+    # Fire-and-forget: log request.form() in background
+    try:
+        form = await request.form()
+        print("   ↳ Form data keys:", list(dict(form).keys()))
+    except Exception:
+        print("   ↳ No form data")
 
     return PlainTextResponse(twiml_str, media_type="application/xml")
 
