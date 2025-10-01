@@ -97,19 +97,13 @@ async def twilio_voice(request):
     resp.say("You are now connected to the AI Voice Agent.", voice="alice", language="en-US")
     resp.say("Press 1 to continue talking, or 2 to hang up.", voice="alice", language="en-US")
 
-    # Connect<Stream>
+    # Connect Media Stream
     wss_url = f"{PUBLIC_URL.replace('https://', 'wss://')}/twilio/stream"
     with resp.connect() as connect:
         connect.stream(url=wss_url)
 
-    # Official Twilio recording (inbound + outbound)
-    resp.record(
-        recording_status_callback=f"{PUBLIC_URL}/twilio/recording-status",
-        recording_status_callback_method="POST"
-    )
-
     twiml_str = str(resp)
-    print("🔍 TwiML sent to Twilio:\n", twiml_str)
+    print("🔍 TwiML sent:\n", twiml_str)
     return PlainTextResponse(twiml_str, media_type="application/xml")
 
 # Twilio Media Stream WebSocket endpoint
@@ -117,7 +111,8 @@ async def twilio_stream(websocket: WebSocket):
     await websocket.accept()
     print("🎧 Twilio Media Stream connected")
 
-    wav_writer, wav_path = None, None
+    wav_writer = None
+    wav_path = None
     total_media_msgs = 0
 
     try:
@@ -129,11 +124,11 @@ async def twilio_stream(websocket: WebSocket):
                 continue
 
             event = message.get("event")
+
             if event == "start":
-                start_info = message.get("start", {})
-                stream_sid = start_info.get("streamSid")
+                sid = message["start"].get("streamSid")
                 ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-                filename = f"call-{ts}-{stream_sid}.wav"
+                filename = f"call-{ts}-{sid}.wav"
                 wav_path = os.path.join(RECORDINGS_DIR, filename)
 
                 wav_writer = wave.open(wav_path, "wb")
@@ -146,26 +141,20 @@ async def twilio_stream(websocket: WebSocket):
             elif event == "media":
                 if not wav_writer:
                     continue
-                payload_b64 = message["media"]["payload"]
-                ulaw_bytes = base64.b64decode(payload_b64)
+                ulaw_bytes = base64.b64decode(message["media"]["payload"])
                 pcm_array = g711.decode_ulaw(ulaw_bytes)
                 pcm_bytes = np.asarray(pcm_array, dtype=np.int16).tobytes()
                 wav_writer.writeframes(pcm_bytes)
                 total_media_msgs += 1
-
                 if total_media_msgs <= 5:
                     print(f"🎤 Media chunk #{total_media_msgs}")
 
             elif event == "dtmf":
-                digit = message.get("dtmf", {}).get("digit")
-                print(f"🎹 DTMF received: {digit}")
+                print(f"🎹 DTMF received: {message.get('dtmf')}")
 
             elif event == "stop":
                 print("🛑 Stop event received")
                 break
-
-    except Exception as e:
-        print("⚠️ Twilio stream error:", e)
 
     finally:
         if wav_writer:
@@ -173,43 +162,48 @@ async def twilio_stream(websocket: WebSocket):
             print(f"✅ Recording saved: {wav_path}")
         await websocket.close()
 
+# Call Status: start recording here. Call status events (initiated, ringing, in-progress, completed) for analytics/debugging
+async def twilio_status(request):
+    form = await request.form()
+    data = dict(form)
+    print("📞 [/twilio/status] Call status:", data)
+
+    if data.get("CallStatus") == "in-progress":
+        call_sid = data.get("CallSid")
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        rec = client.calls(call_sid).recordings.create(
+            recording_status_callback=f"{PUBLIC_URL}/twilio/recording-status",
+            recording_status_callback_method="POST",
+            recording_channels="dual"  
+        )
+        print(f"🎞️ Official Twilio recording started → SID {rec.sid}")
+
+    return PlainTextResponse("ok")
+
 # Twilio Recording Status: auto-download MP3 
 async def twilio_recording_status(request):
     form = await request.form()
     data = dict(form)
-    print("🎞️ Twilio recording status callback:", data)
+    print("🎞️ [/twilio/recording-status] Callback:", data)
 
-    recording_url = data.get("RecordingUrl")  # e.g. https://api.twilio.com/...
+    recording_url = data.get("RecordingUrl")
     recording_sid = data.get("RecordingSid")
-
     if recording_url and recording_sid:
         try:
-            # Add extension for mp3 download
-            mp3_url = recording_url + ".mp3"
-            local_path = os.path.join(RECORDINGS_DIR, f"{recording_sid}.mp3")
-
-            # Download file with Twilio credentials
-            r = requests.get(mp3_url, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
-            if r.status_code == 200:
-                with open(local_path, "wb") as f:
-                    f.write(r.content)
-                print(f"⬇️ Recording saved locally: {local_path}")
+            url_mp3 = recording_url + ".mp3"
+            resp = requests.get(url_mp3, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
+            if resp.status_code == 200:
+                file_path = os.path.join(RECORDINGS_DIR, f"{recording_sid}.mp3")
+                with open(file_path, "wb") as f:
+                    f.write(resp.content)
+                print(f"⬇️ Saved official recording: {file_path}")
             else:
-                print(f"❌ Failed to download recording: {r.status_code}, {r.text}")
+                print("❌ Failed to download recording:", resp.status_code)
         except Exception as e:
-            print("⚠️ Error downloading recording:", e)
+            print("⚠️ Download error:", e)
 
     return PlainTextResponse("ok")
 
-# Call status events (initiated, ringing, in-progress, completed) for analytics/debugging
-async def twilio_status(request):
-    try:
-        form = await request.form()
-        print("📞 [/twilio/status] Call status:", dict(form))
-    except Exception as e:
-        print("📞 [/twilio/status] No form; err:", e)
-    return PlainTextResponse("ok")
-      
 # Fallback handler (if the main webhook fails)
 async def twilio_fallback(request):
     print("⚠️ [/twilio/fallback] Fallback handler triggered")  # Debug log
@@ -218,7 +212,6 @@ async def twilio_fallback(request):
     resp.say("Sorry, our agent is unavailable. Please try again later.",
              voice="alice", language="en-US")
     return PlainTextResponse(str(resp), media_type="application/xml")
-
 
 # Outbound call trigger API
 # Twilio will fetch TwiML from /twilio/voice, which opens the media stream.
@@ -245,7 +238,7 @@ async def get_recording(request):
     filename = request.path_params["filename"]
     file_path = os.path.join(RECORDINGS_DIR, filename)
     if os.path.exists(file_path):
-        return FileResponse(file_path, media_type="audio/wav", filename=filename)
+        return FileResponse(file_path, media_type="audio/mpeg", filename=filename)
     else:
         return PlainTextResponse("Recording not found", status_code=404)
     
