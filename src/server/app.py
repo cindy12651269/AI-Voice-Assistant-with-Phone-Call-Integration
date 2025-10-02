@@ -87,17 +87,25 @@ async def websocket_endpoint(websocket: WebSocket):
     print("TTS latency:", after_tts - after_llm, "seconds")
     # Latency measurement ends
 
-# Twilio Voice Webhook (Connect<Stream> + Say tips; NO <Gather>)
+# Handle inbound/outbound call - return TwiML with Start+Record and Connect+Stream.
 async def twilio_voice(request):
-    print("✅ [/twilio/voice] Incoming request (Connect<Stream>)")
+    print("✅ [/twilio/voice] Incoming request")
 
     resp = VoiceResponse()
 
-    # Say prompt FIRST
+    # (1) Start official Twilio dual-channel recording (saved as .mp3 via callback)
+    with resp.start() as start:
+        start.record(
+            channels="dual",
+            recording_status_callback=f"{PUBLIC_URL}/twilio/recording-status",
+            recording_status_callback_method="POST"
+        )
+
+    # (2) Play prompts before connecting
     resp.say("You are now connected to the AI Voice Agent.", voice="alice", language="en-US")
     resp.say("Press 1 to continue talking, or 2 to hang up.", voice="alice", language="en-US")
 
-    # Connect Media Stream
+    # (3) Connect Media Stream for AI/DTMF
     wss_url = f"{PUBLIC_URL.replace('https://', 'wss://')}/twilio/stream"
     with resp.connect() as connect:
         connect.stream(url=wss_url)
@@ -162,25 +170,7 @@ async def twilio_stream(websocket: WebSocket):
             print(f"✅ Recording saved: {wav_path}")
         await websocket.close()
 
-# Call Status: start recording here. Call status events (initiated, ringing, in-progress, completed) for analytics/debugging
-async def twilio_status(request):
-    form = await request.form()
-    data = dict(form)
-    print("📞 [/twilio/status] Call status:", data)
-
-    if data.get("CallStatus") == "in-progress":
-        call_sid = data.get("CallSid")
-        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
-        rec = client.calls(call_sid).recordings.create(
-            recording_status_callback=f"{PUBLIC_URL}/twilio/recording-status",
-            recording_status_callback_method="POST",
-            recording_channels="dual"  
-        )
-        print(f"🎞️ Official Twilio recording started → SID {rec.sid}")
-
-    return PlainTextResponse("ok")
-
-# Twilio Recording Status: auto-download MP3 
+# Twilio Recording Status callback (saves official dual-channel recording as .mp3)
 async def twilio_recording_status(request):
     form = await request.form()
     data = dict(form)
@@ -196,7 +186,7 @@ async def twilio_recording_status(request):
                 file_path = os.path.join(RECORDINGS_DIR, f"{recording_sid}.mp3")
                 with open(file_path, "wb") as f:
                     f.write(resp.content)
-                print(f"⬇️ Saved official recording: {file_path}")
+                print(f"⬇️ Saved official recording (dual, both sides): {file_path}")
             else:
                 print("❌ Failed to download recording:", resp.status_code)
         except Exception as e:
@@ -261,7 +251,6 @@ routes = [
     # Twilio flows
     Route("/twilio/voice", twilio_voice, methods=["GET", "POST"]), # Now accept GET + POST for /twilio/voice
     WebSocketRoute("/twilio/stream", twilio_stream),
-    Route("/twilio/status", twilio_status, methods=["POST"]),
     Route("/twilio/fallback", twilio_fallback, methods=["POST"]),
     Route("/twilio/recording-status", twilio_recording_status, methods=["POST"]),
 
