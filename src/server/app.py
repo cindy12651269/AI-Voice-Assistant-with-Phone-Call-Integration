@@ -94,12 +94,11 @@ async def twilio_voice(request):
     resp = VoiceResponse()
 
     # (1) Start official Twilio dual-channel recording (saved as .mp3 via callback)
-    with resp.start() as start:
-        start.record(
-            channels="dual",
-            recording_status_callback=f"{PUBLIC_URL}/twilio/recording-status",
-            recording_status_callback_method="POST"
-        )
+    resp.start().record(
+    channels="dual",
+    recording_status_callback=f"{PUBLIC_URL}/twilio/recording-status",
+    recording_status_callback_method="POST"
+    )
 
     # (2) Play prompts before connecting
     resp.say("You are now connected to the AI Voice Agent.", voice="alice", language="en-US")
