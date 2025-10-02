@@ -27,7 +27,7 @@ from src.server.tools import TOOLS
 from src.langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 
 # Import Twilio VoiceResponse to generate TwiML
-from twilio.twiml.voice_response import VoiceResponse
+from twilio.twiml.voice_response import VoiceResponse, Dial, Number
 from twilio.rest import Client
 
 # PUBLIC_URL (must include https:// in .env)
@@ -93,24 +93,40 @@ async def twilio_voice(request):
 
     resp = VoiceResponse()
 
-    # (1) Insert official TwiML <Start><Record> (dual-channel recording)
-    resp.append(
-        f'<Start><Record channels="dual" '
-        f'recordingStatusCallback="{PUBLIC_URL}/twilio/recording-status" '
-        f'recordingStatusCallbackMethod="POST"/></Start>'
-    )
-
-    # (2) Play prompts before connecting
+    # (1) Prompts
     resp.say("You are now connected to the AI Voice Agent.", voice="alice", language="en-US")
     resp.say("Press 1 to continue talking, or 2 to hang up.", voice="alice", language="en-US")
 
-    # (3) Connect Media Stream for AI/DTMF
+    # (2) Media Stream
     wss_url = f"{PUBLIC_URL.replace('https://', 'wss://')}/twilio/stream"
     with resp.connect() as connect:
         connect.stream(url=wss_url)
 
     twiml_str = str(resp)
-    print("🔍 TwiML sent:\n", twiml_str)
+    print("🔍 TwiML sent (AI Voice Agent):\n", twiml_str)
+    return PlainTextResponse(twiml_str, media_type="application/xml")
+
+# Official recording：return TwiML with Dial + Record 
+async def twilio_record_voice(request):
+    print("✅ [/twilio/record-voice] Incoming request (official recording)")
+
+    resp = VoiceResponse()
+    dial = Dial(
+        record="record-from-ringing-dual",
+        recording_status_callback=f"{PUBLIC_URL}/twilio/recording-status",
+        recording_status_callback_method="POST"
+    )
+   
+    MY_PHONE_NUMBER = os.getenv("MY_PHONE_NUMBER")
+    if not MY_PHONE_NUMBER:
+        print("❌ Missing MY_PHONE_NUMBER in environment")
+    else:
+        dial.number(MY_PHONE_NUMBER)
+
+    resp.append(dial)
+
+    twiml_str = str(resp)
+    print("🔍 TwiML sent (Recording Test):\n", twiml_str)
     return PlainTextResponse(twiml_str, media_type="application/xml")
 
 # Twilio Media Stream WebSocket endpoint
@@ -180,7 +196,7 @@ async def twilio_recording_status(request):
     if recording_url and recording_sid:
         try:
             url_mp3 = recording_url + ".mp3"
-            resp = requests.get(url_mp3, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN))
+            resp = requests.get(url_mp3, auth=(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN), timeout=10)
             if resp.status_code == 200:
                 file_path = os.path.join(RECORDINGS_DIR, f"{recording_sid}.mp3")
                 with open(file_path, "wb") as f:
@@ -191,6 +207,16 @@ async def twilio_recording_status(request):
         except Exception as e:
             print("⚠️ Download error:", e)
 
+    return PlainTextResponse("ok")
+
+# Twilio Call Status callback 
+async def twilio_status(request):
+    try:
+        form = await request.form()
+        data = dict(form)
+    except Exception as e:
+        data = {"_parse_error": str(e)}
+    print("📞 [/twilio/status] Call status:", data)
     return PlainTextResponse("ok")
 
 # Fallback handler (if the main webhook fails)
@@ -250,7 +276,9 @@ routes = [
     # Twilio flows
     Route("/twilio/voice", twilio_voice, methods=["GET", "POST"]), # Now accept GET + POST for /twilio/voice
     WebSocketRoute("/twilio/stream", twilio_stream),
+    Route("/twilio/status", twilio_status, methods=["POST"]), 
     Route("/twilio/fallback", twilio_fallback, methods=["POST"]),
+     Route("/twilio/record-voice", twilio_record_voice, methods=["GET", "POST"]),
     Route("/twilio/recording-status", twilio_recording_status, methods=["POST"]),
 
     # Outbound trigger
