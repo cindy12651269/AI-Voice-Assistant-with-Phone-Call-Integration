@@ -93,11 +93,11 @@ async def twilio_voice(request):
 
     resp = VoiceResponse()
 
-    # (1) Start official Twilio dual-channel recording (saved as .mp3 via callback)
-    resp.start().record(
-    channels="dual",
-    recording_status_callback=f"{PUBLIC_URL}/twilio/recording-status",
-    recording_status_callback_method="POST"
+    # (1) Insert official TwiML <Start><Record> (dual-channel recording)
+    resp.append(
+        f'<Start><Record channels="dual" '
+        f'recordingStatusCallback="{PUBLIC_URL}/twilio/recording-status" '
+        f'recordingStatusCallbackMethod="POST"/></Start>'
     )
 
     # (2) Play prompts before connecting
