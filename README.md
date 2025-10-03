@@ -247,11 +247,13 @@ This section documents the end-to-end steps for integrating telephony with the A
 ## Minimal Webhook Response
 
 * **Code**: `app.py` → `/twilio/voice` route with TwiML `<Say>`.
+
 * **Test**: Open in browser:
 
   ```
   https://ai-voice-assistant-with-phone-call.onrender.com/twilio/voice
   ```
+
 * **Expected Output (initial minimal version)**:
 
   ```xml
@@ -261,7 +263,8 @@ This section documents the end-to-end steps for integrating telephony with the A
     </Say>
   </Response>
   ```
-* **Current Implementation**: The code has been upgraded to return TwiML with `<Stream>` (for audio streaming) and `<Gather>` (for DTMF input), in addition to `<Say>`.
+
+* **Current Implementation**: The code has been upgraded to return TwiML with `<Stream>` (for audio streaming) in addition to `<Say>`.
 
 * **Acceptance Criteria**: Render logs show:
 
@@ -269,7 +272,7 @@ This section documents the end-to-end steps for integrating telephony with the A
   ✅ [/twilio/voice] Incoming request received
      ↳ Method: POST
      ↳ Form data: {...}
-     ↳ Responding with TwiML <Stream> + <Say> + <Gather>
+     ↳ Responding with TwiML <Stream> + <Say>
   ```
 
 ## Media Streams Processing
@@ -286,9 +289,9 @@ This section documents the end-to-end steps for integrating telephony with the A
 
 ## DTMF Input Handling
 
-* **Action**: Use TwiML `<Gather>` for keypad input.
-* **Event**: Capture digits via POST webhook.
-* **Acceptance Criteria**: Logs confirm digit pressed (e.g., `Digit=1`).
+* **Action**: Use Media Stream `dtmf` event to detect keypad input.
+* **Event**: Log DTMF tone events during active call.
+* **Acceptance Criteria**: Logs confirm digit pressed (e.g., `🎹 DTMF received: 1`).
 
 ## Outbound Call Demo
 
@@ -318,6 +321,7 @@ This section documents the end-to-end steps for integrating telephony with the A
 * **Inbound calling to Taiwan mobiles may fail** due to local carrier restrictions (STIR/SHAKEN filtering). This is expected even on paid accounts.
 * **Outbound calling works reliably** once Caller ID is verified.
 * For portfolio/demo purposes, outbound calls (via `/callme`) or Twilio numbers from Hong Kong (+852) or Singapore (+65) are recommended for cross-border reliability.
+* Official Twilio call recording (`<Dial record=...>`) is incompatible with `<Connect><Stream>`. The future implementation will migrate to **Conference Recording** for combined AI stream + official recording support.
 
 ---
 
