@@ -18,13 +18,13 @@ from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 from starlette.responses import FileResponse
 
-from src.langchain_openai_voice import OpenAIVoiceReactAgent
-from src.server.utils import websocket_stream
-from src.server.prompt import INSTRUCTIONS
-from src.server.tools import TOOLS
+from langchain_openai_voice import OpenAIVoiceReactAgent
+from server.utils import websocket_stream
+from server.prompt import INSTRUCTIONS
+from server.tools import TOOLS
 
 # Import provider factories from utils.py 
-from src.langchain_openai_voice.utils import get_asr_provider, get_tts_provider
+from langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 
 # Import Twilio VoiceResponse to generate TwiML
 from twilio.twiml.voice_response import VoiceResponse, Dial, Number
@@ -210,7 +210,7 @@ async def get_recording(request):
     
 # Serve the homepage HTML file.
 async def homepage(request):
-    with open("src/server/static/index.html") as f:
+    with open("server/static/index.html") as f:
         html = f.read()
         return HTMLResponse(html)
 
@@ -240,7 +240,7 @@ routes = [
 app = Starlette(debug=True, routes=routes)
 
 # Serve static files (JS worklets etc.)
-app.mount("/static", StaticFiles(directory="src/server/static"), name="static")
+app.mount("/static", StaticFiles(directory="server/static"), name="static")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

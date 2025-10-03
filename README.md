@@ -156,60 +156,120 @@ You can add your own custom instructions by adding them to the `server/src/serve
 
 ## ✅ Speech Pipeline Optimization (WebRTC + ASR/TTS)
 
-1) **Start the Python server**
+This project supports two modes:
+
+* **Local Development Mode** — for testing OpenAI ASR/TTS latency and WebRTC audio pipeline.
+* **Cloud Deployment Mode (Render)** — for Twilio webhook or public demo access.
+
+---
+
+### 🧩 1. Local Development Mode
+
+#### Step 0 — Activate Virtual Environment
+
+Before starting, make sure to activate the virtual environment:
+
 ```bash
-cd server
-uv run python -m src.server.app
-```
-- Expect to see logs like:
-```
-Uvicorn running on http://0.0.0.0:8000 
+source .venv/bin/activate
 ```
 
-2) **Start the JS demo**
-```bash
-cd js_server
-yarn dev
-```
-- Expect to see logs like:
-```
-Server is running on http://localhost:3000
-```
-- Open browser: http://localhost:3000  
-- Allow microphone access: Click **Start Audio** to begin voice testing.
+#### Step 1 — Set ASR/TTS Providers
 
-3) **Verify ASR/TTS provider switching**
-Set environment variables **before starting the server**:
+The default configuration uses **OpenAI Realtime ASR and TTS**.
+You can override the provider by setting the following environment variables:
 
 **macOS / Linux (zsh/bash):**
 
 ```bash
-export ASR_PROVIDER=deepgram
-export TTS_PROVIDER=elevenlabs
-cd server
-uv run python -m src.server.app
+export ASR_PROVIDER=openai
+export TTS_PROVIDER=openai
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-$env:ASR_PROVIDER="deepgram"
-$env:TTS_PROVIDER="elevenlabs"
-cd server
-uv run python -m src.server.app
+$env:ASR_PROVIDER="openai"
+$env:TTS_PROVIDER="openai"
 ```
 
-Then speak into the mic → check the server logs for provider-specific output:
+> Optional providers (with API keys):
+> ASR – `deepgram`
+> TTS – `elevenlabs`, `azure`
+
+#### Step 2 — Start the Python Server
+
+```bash
+cd src
+uv run python -m server.app
+```
+
+Expected logs:
 
 ```
-Transcribed: "hello world"        # Deepgram stub
-Synthesized audio (ElevenLabs)    # ElevenLabs stub
+Uvicorn running on http://0.0.0.0:8000
 ```
 
-4) **Check latency logs**
-### Backend (Python server)
+#### Step 3 — Frontend Configuration (.env Management)
 
-The server console prints per-stage timings:
+For the frontend (`js_server`), create two environment files to easily switch between local and cloud modes:
+
+**.env.local**
+
+```bash
+VITE_SERVER_URL=http://localhost:8000
+```
+
+**.env.render**
+
+```bash
+VITE_SERVER_URL=https://ai-voice-assistant-with-phone-call.onrender.com
+```
+
+Switch between modes by copying the desired file:
+
+```bash
+cp js_server/.env.local js_server/.env       # Local Mode
+```
+
+Then start the frontend:
+
+```bash
+cd js_server
+yarn dev
+```
+
+Expected logs:
+
+```
+Server is running on http://localhost:3000
+```
+
+Then open the browser at **[http://localhost:3000](http://localhost:3000)**
+
+→ Allow microphone access
+→ Click **Start Audio** to begin WebRTC voice testing.
+
+#### Step 4 — Verify ASR/TTS Output
+
+Speak into the mic and check the Python server console:
+
+```
+Transcribed: 'transcribed text from OpenAI'
+LLM processing skipped (test mode)
+Synthesized audio (OpenAI)
+```
+
+If Deepgram or ElevenLabs keys are set, the output will switch automatically:
+
+```
+Transcribed: "hello world"        # Deepgram
+Synthesized audio (ElevenLabs)    # ElevenLabs
+```
+
+#### Step 5 — Check Latency Logs
+
+**Backend (Python server)**
+Each stage timing is printed to the console:
 
 ```
 ASR latency: 0.003s
@@ -217,13 +277,76 @@ LLM latency: 0.052s
 TTS latency: 0.020s
 ```
 
-### Frontend (Browser / DevTools)
+Latency metrics are handled by `log_stage_latency()` in `server/src/server/utils.py`.
 
-Open **Chrome DevTools (F12)** → Console/Network → check WebRTC stats:
+**Frontend (Browser / DevTools)**
+Open Chrome DevTools (**F12**) → Console → check WebRTC statistics:
 
 * `packetsSent`
 * `jitter`
 * `rtt`
+
+---
+
+### ☁️ 2. Cloud Deployment Mode (Render + Twilio Integration)
+
+If you have deployed the backend to **Render**, use this mode for remote access or Twilio webhook testing.
+
+#### Step 1 — Confirm Deployment
+
+Render backend URL (example):
+
+```
+https://ai-voice-assistant-with-phone-call.onrender.com
+```
+
+Server log example:
+
+```
+Uvicorn running on http://0.0.0.0:10000 (Render managed)
+```
+
+#### Step 2 — Configure Twilio Webhook
+
+In Twilio Console → **Phone Numbers → Manage → Active Numbers**,
+set **A CALL COMES IN** → **Webhook** to:
+
+```
+https://ai-voice-assistant-with-phone-call.onrender.com/twilio/voice
+```
+
+#### Step 3 — Frontend Configuration
+
+Ensure `.env.render` is active:
+
+```bash
+cp js_server/.env.render js_server/.env     # Cloud Mode
+cd js_server
+yarn dev
+```
+
+Expected logs:
+
+```
+Server is running on http://localhost:3000
+```
+
+The browser demo will now connect to the **Render backend** instead of local `localhost:8000`.
+
+#### Step 4 — Public Showcase 
+
+* Call your Twilio number to test the AI agent.
+* Render server handles the `/twilio/voice` webhook request.
+* The AI pipeline (ASR → LLM → TTS) responds in real time.
+
+---
+
+### 📊 Summary
+
+| Mode                  | Backend                   | Frontend              | Default Providers       | Use Case                                 |
+| --------------------- | ------------------------- | --------------------- | ----------------------- | ---------------------------------------- |
+| **Local Development** | `localhost:8000`          | `localhost:3000`      | OpenAI ASR + OpenAI TTS | Latency tuning & speech pipeline testing |
+| **Cloud (Render)**    | `https://...onrender.com` | optional (via `.env`) | OpenAI ASR + OpenAI TTS | Twilio Webhook & Upwork Showcase         |
 
 ---
 

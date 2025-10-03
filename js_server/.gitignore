@@ -11,9 +11,14 @@
 # deps
 node_modules/
 
-# env
+# Environment files
 .env
+.env.*
 .env.production
+js_server/.env
+js_server/.env.*
+server/.env
+server/.env.*
 
 # logs
 logs/
