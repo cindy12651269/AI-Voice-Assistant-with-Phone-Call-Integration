@@ -32,7 +32,12 @@ EVENTS_TO_IGNORE = {
 
 
 @asynccontextmanager
-async def connect(*, api_key: str, model: str, url: str) -> AsyncGenerator[
+async def connect(
+    *,
+    api_key: str,
+    model: str,
+    url: str,
+) -> AsyncGenerator[
     tuple[
         Callable[[dict[str, Any] | str], Coroutine[Any, Any, None]],
         AsyncIterator[dict[str, Any]],
@@ -40,10 +45,11 @@ async def connect(*, api_key: str, model: str, url: str) -> AsyncGenerator[
     None,
 ]:
     """
-    async with connect(model="gpt-4o-realtime-preview-2024-10-01") as websocket:
-        await websocket.send("Hello, world!")
-        async for message in websocket:
-            print(message)
+    Usage:
+        async with connect(model="gpt-4o-realtime-preview-2024-10-01", api_key=..., url=...) as (send_event, stream):
+            await send_event({"type": "session.update", ...})
+            async for message in stream:
+                print(message)
     """
 
     headers = {
@@ -57,7 +63,6 @@ async def connect(*, api_key: str, model: str, url: str) -> AsyncGenerator[
     websocket = await websockets.connect(url, extra_headers=headers)
 
     try:
-
         async def send_event(event: dict[str, Any] | str) -> None:
             formatted_event = json.dumps(event) if isinstance(event, dict) else event
             await websocket.send(formatted_event)
@@ -67,7 +72,6 @@ async def connect(*, api_key: str, model: str, url: str) -> AsyncGenerator[
                 yield json.loads(raw_event)
 
         stream: AsyncIterator[dict[str, Any]] = event_stream()
-
         yield send_event, stream
     finally:
         await websocket.close()
@@ -87,12 +91,10 @@ class VoiceToolExecutor(BaseModel):
 
     async def add_tool_call(self, tool_call: dict) -> None:
         # lock to avoid simultaneous tool calls racing and missing
-        # _trigger_future being
         async with self._lock:
             if self._trigger_future.done():
                 # TODO: handle simultaneous tool calls better
                 raise ValueError("Tool call adding already in progress")
-
             self._trigger_future.set_result(tool_call)
 
     async def _create_tool_call_task(self, tool_call: dict) -> asyncio.Task[dict]:
@@ -164,7 +166,7 @@ class VoiceToolExecutor(BaseModel):
 
 @beta()
 class OpenAIVoiceReactAgent(BaseModel):
-    model: str
+    model: str = Field(default=DEFAULT_MODEL)
     api_key: SecretStr = Field(
         alias="openai_api_key",
         default_factory=secret_from_env("OPENAI_API_KEY", default=""),
@@ -182,25 +184,22 @@ class OpenAIVoiceReactAgent(BaseModel):
         Connect to the OpenAI API and send and receive messages.
 
         input_stream: AsyncIterator[str]
-            Stream of input events to send to the model. Usually transports input_audio_buffer.append events from the microphone.
-        output: Callable[[str], None]
-            Callback to receive output events from the model. Usually sends response.audio.delta events to the speaker.
+            Stream of input events to send to the model.
+            Usually transports input_audio_buffer.append events from the microphone.
 
+        send_output_chunk: Callable[[str], Awaitable[None]]
+            Callback to receive output events from the model.
+            Usually sends response.audio.delta events to the speaker.
         """
-        # formatted_tools: list[BaseTool] = [
-        #     tool if isinstance(tool, BaseTool) else tool_converter.wr(tool)  # type: ignore
-        #     for tool in self.tools or []
-        # ]
-        tools_by_name = {tool.name: tool for tool in self.tools}
+        tools_by_name = {tool.name: tool for tool in (self.tools or [])}
         tool_executor = VoiceToolExecutor(tools_by_name=tools_by_name)
 
         async with connect(
-            model=self.model, api_key=self.api_key.get_secret_value(), url=self.url
-        ) as (
-            model_send,
-            model_receive_stream,
-        ):
-            # sent tools and instructions with initial chunk
+            model=self.model,
+            api_key=self.api_key.get_secret_value(),
+            url=self.url,
+        ) as (model_send, model_receive_stream):
+            # send tools and instructions with initial chunk
             tool_defs = [
                 {
                     "type": "function",
@@ -222,15 +221,14 @@ class OpenAIVoiceReactAgent(BaseModel):
                     },
                 }
             )
+
             async for stream_key, data_raw in amerge(
                 input_mic=input_stream,
                 output_speaker=model_receive_stream,
                 tool_outputs=tool_executor.output_iterator(),
             ):
                 try:
-                    data = (
-                        json.loads(data_raw) if isinstance(data_raw, str) else data_raw
-                    )
+                    data = json.loads(data_raw) if isinstance(data_raw, str) else data_raw
                 except json.JSONDecodeError:
                     print("error decoding data:", data_raw)
                     continue
@@ -242,26 +240,36 @@ class OpenAIVoiceReactAgent(BaseModel):
                     await model_send(data)
                     await model_send({"type": "response.create", "response": {}})
                 elif stream_key == "output_speaker":
-
-                    t = data["type"]
+                    t = data.get("type")
                     if t == "response.audio.delta":
                         await send_output_chunk(json.dumps(data))
                     elif t == "input_audio_buffer.speech_started":
                         print("interrupt")
-                        send_output_chunk(json.dumps(data))
+                        await send_output_chunk(json.dumps(data))
                     elif t == "error":
                         print("error:", data)
                     elif t == "response.function_call_arguments.done":
                         print("tool call", data)
                         await tool_executor.add_tool_call(data)
                     elif t == "response.audio_transcript.done":
-                        print("model:", data["transcript"])
+                        print("model:", data.get("transcript"))
                     elif t == "conversation.item.input_audio_transcription.completed":
-                        print("user:", data["transcript"])
+                        print("user:", data.get("transcript"))
                     elif t in EVENTS_TO_IGNORE:
                         pass
                     else:
                         print(t)
 
+    # Add External audio entry for Twilio/SIP.js pipelines
+    async def handleExternalAudioChunk(self, pcm_bytes: bytes) -> None:
+        """
+        Accept raw PCM16 bytes (e.g., 8kHz mono from Twilio after μ-law decode)
+        and (in the future) forward them to the model as base64 frames.
+        Later we can implement:
+          base64_audio = base64.b64encode(pcm_bytes).decode("utf-8")
+          await model_send({"type": "input_audio_buffer.append", "audio": base64_audio})
+        """
+        print(f"[Agent] Received {len(pcm_bytes)} bytes of PCM audio")
+        return
 
 __all__ = ["OpenAIVoiceReactAgent"]

@@ -829,6 +829,33 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@twilio/voice-errors@npm:1.7.0":
+  version: 1.7.0
+  resolution: "@twilio/voice-errors@npm:1.7.0"
+  checksum: 519834f0c765bc7b6b983943510fa5f1b4641e30a3955112f882d101bf4681255233af35aa6f05245ed9b371033c2d695ad8dc64b82bab85d608939b26c9cfd8
+  languageName: node
+  linkType: hard
+
+"@twilio/voice-sdk@npm:^2.16.0":
+  version: 2.16.0
+  resolution: "@twilio/voice-sdk@npm:2.16.0"
+  dependencies:
+    "@twilio/voice-errors": 1.7.0
+    "@types/events": ^3.0.3
+    events: 3.3.0
+    loglevel: 1.9.2
+    tslib: 2.8.1
+  checksum: 70e1201f068d34024447f83f98bde30fa2560307b7c4d25c45196fbed948d3bdfa9abdf0ca6e668ac13990076c89283fad2ef76e9aa103ce9ee0170b5484768d
+  languageName: node
+  linkType: hard
+
+"@types/events@npm:^3.0.3":
+  version: 3.0.3
+  resolution: "@types/events@npm:3.0.3"
+  checksum: 50af9312fab001fd6bd4bb3ff65830f940877e6778de140a92481a0d9bf5f4853d44ec758a8800ef60e0598ac43ed1b5688116a3c65906ae54e989278d6c7c82
+  languageName: node
+  linkType: hard
+
 "@types/node@npm:*, @types/node@npm:>=13.7.0, @types/node@npm:^20.19.17":
   version: 20.19.17
   resolution: "@types/node@npm:20.19.17"
@@ -1229,6 +1256,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"events@npm:3.3.0":
+  version: 3.3.0
+  resolution: "events@npm:3.3.0"
+  checksum: f6f487ad2198aa41d878fa31452f1a3c00958f46e9019286ff4787c84aac329332ab45c9cdc8c445928fc6d7ded294b9e005a7fce9426488518017831b272780
+  languageName: node
+  linkType: hard
+
 "exponential-backoff@npm:^3.1.1":
   version: 3.1.2
   resolution: "exponential-backoff@npm:3.1.2"
@@ -1486,10 +1520,12 @@ __metadata:
     "@hono/node-ws": ^1.2.0
     "@langchain/community": ^0.3.4
     "@langchain/core": ^0.3.7
+    "@twilio/voice-sdk": ^2.16.0
     "@types/node": ^20.19.17
     "@types/ws": ^8.18.1
     dotenv: ^16.4.5
     hono: ^4.9.8
+    sip.js: ^0.21.2
     tsx: ^4.7.1
     ws: ^8.18.3
     zod: ^3.23.8
@@ -1610,6 +1646,13 @@ __metadata:
   version: 4.3.0
   resolution: "lodash.camelcase@npm:4.3.0"
   checksum: cb9227612f71b83e42de93eccf1232feeb25e705bdb19ba26c04f91e885bfd3dd5c517c4a97137658190581d3493ea3973072ca010aab7e301046d90740393d1
+  languageName: node
+  linkType: hard
+
+"loglevel@npm:1.9.2":
+  version: 1.9.2
+  resolution: "loglevel@npm:1.9.2"
+  checksum: 896c67b90a507bfcfc1e9a4daa7bf789a441dd70d95cd13b998d6dd46233a3bfadfb8fadb07250432bbfb53bf61e95f2520f9b11f9d3175cc460e5c251eca0af
   languageName: node
   linkType: hard
 
@@ -2047,6 +2090,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"sip.js@npm:^0.21.2":
+  version: 0.21.2
+  resolution: "sip.js@npm:0.21.2"
+  checksum: 01db91ac4a390d5b29dd5f9a0d9896589f36d1ed8d777cfdc393fee3c97f71cf2fa32cbdf9bef8eff1827a75e4f12af316223341eaf7c26410067a436c601627
+  languageName: node
+  linkType: hard
+
 "smart-buffer@npm:^4.2.0":
   version: 4.2.0
   resolution: "smart-buffer@npm:4.2.0"
@@ -2168,6 +2218,13 @@ __metadata:
   version: 1.0.6
   resolution: "ts-error@npm:1.0.6"
   checksum: 043d15c155bf3aeeb146523f24650a773a4aa607587252692640eb233f9d832b73e207c4f076c2e7bc68e9897979eec0586cf631a919f3a3c542fb981d35a5d7
+  languageName: node
+  linkType: hard
+
+"tslib@npm:2.8.1":
+  version: 2.8.1
+  resolution: "tslib@npm:2.8.1"
+  checksum: e4aba30e632b8c8902b47587fd13345e2827fa639e7c3121074d5ee0880723282411a8838f830b55100cbe4517672f84a2472667d355b81e8af165a55dc6203a
   languageName: node
   linkType: hard
 

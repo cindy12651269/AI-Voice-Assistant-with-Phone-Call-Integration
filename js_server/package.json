@@ -8,8 +8,10 @@
     "@hono/node-ws": "^1.2.0",
     "@langchain/community": "^0.3.4",
     "@langchain/core": "^0.3.7",
+    "@twilio/voice-sdk": "^2.16.0",
     "dotenv": "^16.4.5",
     "hono": "^4.9.8",
+    "sip.js": "^0.21.2",
     "ws": "^8.18.3",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.23.3"

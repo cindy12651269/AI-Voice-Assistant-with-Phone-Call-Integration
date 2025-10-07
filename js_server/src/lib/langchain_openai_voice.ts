@@ -282,4 +282,42 @@ export class OpenAIVoiceReactAgent {
       }
     }
   }
+
+  /**
+   * Handle incoming audio from Twilio or SIP.js
+   * Twilio: 8kHz μ-law (G711u)
+   * SIP.js: 16kHz PCM (WebRTC)
+   */
+  async handleExternalAudioChunk(audioChunk: ArrayBuffer) {
+    try {
+      this.connection.sendEvent({
+        type: "input_audio_buffer.append",
+        audio: Buffer.from(audioChunk).toString("base64"),
+      });
+    } catch (err) {
+      console.error("Audio processing error:", err);
+    }
+  }
+
+  /**
+   * Send LLM-generated audio back to Twilio/SIP.js stream
+   * e.g., stream AI voice reply back into call
+   */
+  async handleAIAudioOutput(
+    chunk: any,
+    sendAudioFn: (pcm: ArrayBuffer) => void
+  ) {
+    if (chunk?.type === "response.audio.delta") {
+      const base64Audio = chunk.delta;
+      const audioBuffer = Buffer.from(base64Audio, "base64");
+  
+      // ArrayBuffer
+      const arrayBuffer = audioBuffer.buffer.slice(
+        audioBuffer.byteOffset,
+        audioBuffer.byteOffset + audioBuffer.byteLength
+      );
+  
+      sendAudioFn(arrayBuffer);
+    }
+  }  
 }

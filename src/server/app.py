@@ -19,7 +19,7 @@ from starlette.responses import HTMLResponse, PlainTextResponse
 from starlette.routing import Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, JSONResponse
 
 from langchain_openai_voice import OpenAIVoiceReactAgent
 from server.utils import websocket_stream
@@ -32,6 +32,10 @@ from langchain_openai_voice.utils import get_asr_provider, get_tts_provider
 # Import Twilio VoiceResponse to generate TwiML
 from twilio.twiml.voice_response import VoiceResponse, Dial, Number
 from twilio.rest import Client
+
+# For Twilio token endpoint
+from twilio.jwt.access_token import AccessToken
+from twilio.jwt.access_token.grants import VoiceGrant
 
 # PUBLIC_URL (must include https:// in .env)
 PUBLIC_URL = os.getenv("PUBLIC_URL")
@@ -46,6 +50,20 @@ TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RECORDINGS_DIR = os.path.join(BASE_DIR, "recordings")
 os.makedirs(RECORDINGS_DIR, exist_ok=True) # Create if not exists
+
+# Twilio Access Token endpoint 
+async def twilio_token(request):
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    api_key_sid = os.getenv("TWILIO_API_KEY_SID")
+    api_key_secret = os.getenv("TWILIO_API_KEY_SECRET")
+    twiml_app_sid = os.getenv("TWIML_APP_SID")
+    identity = request.query_params.get("identity", "demo_user")
+
+    token = AccessToken(account_sid, api_key_sid, api_key_secret, identity=identity)
+    voice_grant = VoiceGrant(outgoing_application_sid=twiml_app_sid)
+    token.add_grant(voice_grant)
+
+    return JSONResponse({"token": token.to_jwt().decode("utf-8")})
 
 # Browser WebSocket endpoint (ASR → LLM → TTS pipeline)
 # Receive audio from the browser, and stream the response back to the client.
@@ -112,8 +130,13 @@ async def twilio_stream(websocket: WebSocket):
     await websocket.accept()
     print("🎧 Twilio Media Stream connected")
 
+    agent = OpenAIVoiceReactAgent(
+        model="gpt-4o-realtime-preview",
+        tools=TOOLS,
+        instructions=INSTRUCTIONS,
+    )
+
     wav_writer = None
-    wav_path = None
     total_media_msgs = 0
 
     try:
@@ -136,7 +159,6 @@ async def twilio_stream(websocket: WebSocket):
                 wav_writer.setnchannels(1)
                 wav_writer.setsampwidth(2)
                 wav_writer.setframerate(8000)
-
                 print(f"📁 Recording started → {wav_path}")
 
             elif event == "media":
@@ -146,9 +168,17 @@ async def twilio_stream(websocket: WebSocket):
                 pcm_array = g711.decode_ulaw(ulaw_bytes)
                 pcm_bytes = np.asarray(pcm_array, dtype=np.int16).tobytes()
                 wav_writer.writeframes(pcm_bytes)
+
+                # Pass PCM bytes to the agent's audio handler 
+                if hasattr(agent, "handleExternalAudioChunk"):
+                    try:
+                        await agent.handleExternalAudioChunk(pcm_bytes)
+                    except Exception as e:
+                        print("⚠️ Agent audio handler error:", e)
+
                 total_media_msgs += 1
                 if total_media_msgs <= 5:
-                    print(f"🎤 Media chunk #{total_media_msgs}")
+                    print(f"🎤 Received media chunk #{total_media_msgs}")
 
             elif event == "dtmf":
                 print(f"🎹 DTMF received: {message.get('dtmf')}")
@@ -160,7 +190,7 @@ async def twilio_stream(websocket: WebSocket):
     finally:
         if wav_writer:
             wav_writer.close()
-            print(f"✅ Recording saved: {wav_path}")
+            print(f"✅ Recording saved.")
         await websocket.close()
 
 # Twilio Call Status callback 
@@ -228,6 +258,7 @@ routes = [
     WebSocketRoute("/ws", websocket_endpoint),
     
     # Twilio flows
+    Route("/twilio/token", twilio_token, methods=["GET"]),
     Route("/twilio/voice", twilio_voice, methods=["GET", "POST"]), # Now accept GET + POST for /twilio/voice
     WebSocketRoute("/twilio/stream", twilio_stream),
     Route("/twilio/status", twilio_status, methods=["POST"]), 
