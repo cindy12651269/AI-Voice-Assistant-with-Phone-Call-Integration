@@ -63,7 +63,7 @@ async def twilio_token(request):
     voice_grant = VoiceGrant(outgoing_application_sid=twiml_app_sid)
     token.add_grant(voice_grant)
 
-    return JSONResponse({"token": token.to_jwt().decode("utf-8")})
+    return JSONResponse({"token": token.to_jwt()}) # No need to decode() — it's already a str
 
 # Browser WebSocket endpoint (ASR → LLM → TTS pipeline)
 # Receive audio from the browser, and stream the response back to the client.
