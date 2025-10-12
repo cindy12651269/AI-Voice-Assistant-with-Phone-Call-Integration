@@ -1525,7 +1525,7 @@ __metadata:
     "@types/ws": ^8.18.1
     dotenv: ^16.4.5
     hono: ^4.9.8
-    sip.js: ^0.21.2
+    sip.js: 0.21.2
     tsx: ^4.7.1
     ws: ^8.18.3
     zod: ^3.23.8
@@ -2090,7 +2090,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"sip.js@npm:^0.21.2":
+"sip.js@npm:0.21.2":
   version: 0.21.2
   resolution: "sip.js@npm:0.21.2"
   checksum: 01db91ac4a390d5b29dd5f9a0d9896589f36d1ed8d777cfdc393fee3c97f71cf2fa32cbdf9bef8eff1827a75e4f12af316223341eaf7c26410067a436c601627
